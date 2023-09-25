@@ -50,7 +50,9 @@ func (ro *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	root.handlefunc(ctx)
 }
 
-// 路由树注册功能
+// addRoute 注册路由。
+// method 是 HTTP 方法
+// path 必须以 / 开始并且结尾不能有 /，中间也不允许有连续的 /
 func (ro *router) Route(method string, pattern string, handlefunc func(c *Context)) {
 	//用户注册路由时可以针对格式提要求
 	if pattern == "" {
@@ -76,7 +78,7 @@ func (ro *router) Route(method string, pattern string, handlefunc func(c *Contex
 		root.handlefunc = handlefunc
 		return
 	}
-	segs := strings.Split(pattern[1:], "/")
+	segs := strings.Split(pattern[1:], "/") //去除第一个“/”，根节点已经特殊处理了
 	// segs := strings.Split(strings.Trim(pattern, "/"), "/") //不采用，因为会去除首尾的所有的"/", 错误路由例如"//user/post/"=>"user/post" 无法识别
 	for _, seg := range segs {
 		if seg == "" {
@@ -91,7 +93,8 @@ func (ro *router) Route(method string, pattern string, handlefunc func(c *Contex
 	root.handlefunc = handlefunc
 }
 
-// 额外抽象的寻找路由的函数
+// findRoute 查找对应的节点
+// 注意，返回的 node 内部 HandleFunc 不为 nil 才算是注册了路由，findout只管查找结点，不负责确认handlefunc 是否存在，即不区分中间节点和末尾节点
 func (ro *router) findRouter(method string, pattern string) (*node, bool) {
 	root, ok := ro.trees[method]
 	if !ok {
@@ -111,18 +114,46 @@ func (ro *router) findRouter(method string, pattern string) (*node, bool) {
 	return root, true
 }
 
-// 判断路由子节点
-func (n *node) Childof(pattern string) (*node, bool) {
-	if n.children == nil {
-		return nil, false
-	}
-	res, ok := n.children[pattern]
-	return res, ok
+// node 代表路由树的节点
+// 路由树的匹配顺序是：
+// 1. 静态完全匹配
+// 2. 通配符匹配
+// **不支持** a/b/c & a/*/* 两个路由同时注册下, a/b/d 匹配（即无法回溯）
+// **不支持** a/* 与 a/b/c 匹配
+type node struct {
+	path       string           // path URL路径
+	children   map[string]*node //子path到子节点的映射
+	handlefunc HandleFunc       //命中路由后的处理函数
+	starChild  *node            // 通配符匹配 *
+	paramChild *node            // 路径参数匹配 :id
 }
 
-// 判断并创造对应路由子节点
+// childof 查找并返回子节点
+func (n *node) Childof(pattern string) (*node, bool) {
+	if n.children == nil { //无子节点
+		// if n.starChild != nil {
+		// 	return n.starChild,true
+		// }
+		// return nil, false
+		return n.starChild, (n.starChild != nil) //有通配符就返回通配符，无通配符就返回失败
+	}
+	res, ok := n.children[pattern]
+	if !ok { //子节点未找到对应path 的node
+		return n.starChild, (n.starChild != nil) //有通配符就返回通配符，无通配符就返回失败
+	}
+	return res, ok // 找到对应node即返回
+}
+
+// childOrCreate 查找子节点，如果子节点不存在就创建一个
+// 并且将子节点放回去了 children 中
 func (n *node) ChildOrCreate(pattern string) *node {
-	if n.children == nil {
+	if pattern == "*" {
+		if n.starChild == nil {
+			n.starChild = &node{path: "*"}
+		}
+		return n.starChild
+	}
+	if n.children == nil { //无子节点
 		n.children = make(map[string]*node)
 	}
 	root, ok := n.children[pattern]
@@ -132,24 +163,3 @@ func (n *node) ChildOrCreate(pattern string) *node {
 	}
 	return root
 }
-
-// 路由树实现子节点
-type node struct {
-	path       string           // path URL路径
-	children   map[string]*node //子path到子节点的映射
-	handlefunc HandleFunc       //命中路由后的处理函数
-}
-
-// node 两种形态：
-//1. 最后的节点（没有子节点）
-// type node struct {
-// 	path       lastURL
-// 	children   nil
-// 	handlefunc  HandleFunc
-// }
-//2. 中间的节点(可能有或没有处理函数)
-// type node struct {
-// 	path       MiddleURL
-// 	children   map[string]*node
-// 	handlefunc  handleFunc
-// }

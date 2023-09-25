@@ -38,6 +38,27 @@ func TestRoute(t *testing.T) {
 			method: http.MethodPost,
 			path:   "/login",
 		},
+		// 通配符测试用例
+		{
+			method: http.MethodGet,
+			path:   "/order/*",
+		},
+		{
+			method: http.MethodGet,
+			path:   "/*",
+		},
+		{
+			method: http.MethodGet,
+			path:   "/*/*",
+		},
+		{
+			method: http.MethodGet,
+			path:   "/*/abc",
+		},
+		{
+			method: http.MethodGet,
+			path:   "/*/abc/*",
+		},
 	}
 
 	//初始化Router，循环注册路由示例testCase
@@ -49,19 +70,58 @@ func TestRoute(t *testing.T) {
 
 	wantRouter := router{
 		trees: map[string]*node{
-			http.MethodGet: &node{path: "/", children: map[string]*node{
-				"user": &node{path: "user", children: map[string]*node{
-					"home": &node{path: "home", handlefunc: mockhandler},
-				}, handlefunc: mockhandler},
-				"order": &node{path: "order", children: map[string]*node{
-					"detail": &node{path: "detail", handlefunc: mockhandler},
-				}},
-			}, handlefunc: mockhandler},
-			http.MethodPost: &node{path: "/", children: map[string]*node{
-				"order": &node{path: "order", children: map[string]*node{
-					"create": &node{path: "create", handlefunc: mockhandler}}},
-				"login": &node{path: "login", handlefunc: mockhandler},
-			}},
+			http.MethodGet: &node{
+				path: "/",
+				children: map[string]*node{
+					"user": &node{
+						path: "user",
+						children: map[string]*node{
+							"home": &node{
+								path:       "home",
+								handlefunc: mockhandler},
+						},
+						handlefunc: mockhandler},
+					"order": &node{
+						path: "order",
+						children: map[string]*node{
+							"detail": &node{
+								path:       "detail",
+								handlefunc: mockhandler},
+						},
+						starChild: &node{path: "*", handlefunc: mockhandler}},
+				},
+				starChild: &node{
+					path:       "*",
+					handlefunc: mockhandler,
+					starChild: &node{
+						path: "*", handlefunc: mockhandler},
+					children: map[string]*node{
+						"abc": &node{
+							path: "abc", handlefunc: mockhandler,
+							starChild: &node{
+								path: "*", handlefunc: mockhandler,
+							},
+						},
+					},
+				},
+				handlefunc: mockhandler,
+			},
+			http.MethodPost: &node{
+				path: "/",
+				children: map[string]*node{
+					"order": &node{
+						path: "order",
+						children: map[string]*node{
+							"create": &node{
+								path:       "create",
+								handlefunc: mockhandler},
+						},
+					},
+					"login": &node{
+						path:       "login",
+						handlefunc: mockhandler},
+				},
+			},
 		},
 	}
 
@@ -133,8 +193,15 @@ func (n *node) nodeEqual(w *node) (msg string, ok bool) {
 	if nf != wf {
 		return fmt.Sprintf("%s 与 %s节点 handlefunc %s and %s 不相等 ", n.path, w.path, nf.Type().String(), wf.Type().String()), false
 	}
-	//比较children
+	//比较starChild
+	if n.starChild != nil {
+		msg, ok := n.starChild.nodeEqual(w.starChild)
+		if !ok {
+			return fmt.Sprintf("%s 与 %s节点 starChild 不相等,%s", n.path, w.path, msg), false
+		}
+	}
 
+	//比较children
 	if len(n.children) != len(w.children) {
 		return fmt.Sprintf("%s and %s子节点长度不等", n.path, w.path), false
 	}
@@ -152,7 +219,7 @@ func (n *node) nodeEqual(w *node) (msg string, ok bool) {
 	return "", true
 }
 
-func Test_router_findRoute(t *testing.T) {
+func TestFindRoute(t *testing.T) {
 	testRoutes := []struct {
 		method string
 		path   string
@@ -168,6 +235,15 @@ func Test_router_findRoute(t *testing.T) {
 		{
 			method: http.MethodPost,
 			path:   "/order/create",
+		},
+		//通配符注册
+		{
+			method: http.MethodGet,
+			path:   "/user/*/home",
+		},
+		{
+			method: http.MethodPost,
+			path:   "/order/*",
 		},
 	}
 
@@ -228,6 +304,38 @@ func Test_router_findRoute(t *testing.T) {
 				handlefunc: mockHandler,
 			},
 		},
+		// 通配符匹配
+		{
+			// 命中/order/*
+			name:   "star match",
+			method: http.MethodPost,
+			path:   "/order/delete",
+			found:  true,
+			wantNode: &node{
+				path:       "*",
+				handlefunc: mockHandler,
+			},
+		},
+		{
+			// 命中通配符在中间的
+			// /user/*/home
+			name:   "star in middle",
+			method: http.MethodGet,
+			path:   "/user/Tom/home",
+			found:  true,
+			wantNode: &node{
+				path:       "home",
+				handlefunc: mockHandler,
+			},
+		},
+		{
+			// 比 /order/* 多了一段
+			name:     "overflow",
+			method:   http.MethodPost,
+			path:     "/order/delete/123",
+			found:    false,
+			wantNode: nil,
+		},
 	}
 	r := newRouter()
 	for _, tr := range testRoutes {
@@ -241,6 +349,7 @@ func Test_router_findRoute(t *testing.T) {
 			if !found {
 				return
 			}
+			assert.Equal(t, tc.wantNode.path, n.path)
 			wantVal := reflect.ValueOf(tc.wantNode.handlefunc)
 			nVal := reflect.ValueOf(n.handlefunc)
 			assert.Equal(t, wantVal, nVal)
