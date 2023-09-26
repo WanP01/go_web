@@ -59,6 +59,23 @@ func TestRoute(t *testing.T) {
 			method: http.MethodGet,
 			path:   "/*/abc/*",
 		},
+		// 参数路由
+		{
+			method: http.MethodGet,
+			path:   "/param/:id",
+		},
+		{
+			method: http.MethodGet,
+			path:   "/param/:id/detail",
+		},
+		{
+			method: http.MethodGet,
+			path:   "/param/:id/*",
+		},
+		{
+			method: http.MethodGet,
+			path:   "/param/:id/detail/:username",
+		},
 	}
 
 	//初始化Router，循环注册路由示例testCase
@@ -89,6 +106,18 @@ func TestRoute(t *testing.T) {
 								handlefunc: mockhandler},
 						},
 						starChild: &node{path: "*", handlefunc: mockhandler}},
+					"param": &node{
+						path: "param",
+						paramChild: &node{
+							path: ":id", handlefunc: mockhandler,
+							children: map[string]*node{
+								"detail": &node{
+									path: "detail", handlefunc: mockhandler,
+									paramChild: &node{path: ":username", handlefunc: mockhandler},
+								},
+							},
+							starChild: &node{path: "*", handlefunc: mockhandler},
+						}},
 				},
 				starChild: &node{
 					path:       "*",
@@ -127,7 +156,8 @@ func TestRoute(t *testing.T) {
 
 	msg, ok := wantRouter.rootEqual(r)
 	assert.True(t, ok, msg)
-	// 非法用例
+
+	// 非法用例 **************************************************
 	r = newRouter()
 	// r.Route(http.MethodGet, "a/b/c", mockhandler)
 	// 空字符串
@@ -163,6 +193,33 @@ func TestRoute(t *testing.T) {
 	assert.PanicsWithValue(t, "web: 非法路由。不允许使用 //a/b, /a//b 之类的路由, [//a/b]", func() {
 		r.Route(http.MethodGet, "//a/b", mockhandler)
 	})
+
+	// 同时注册通配符路由和参数路由
+	assert.PanicsWithValue(t, "web: 非法路由，已有通配符路由。不允许同时注册通配符路由和参数路由 [:id]", func() {
+		r.Route(http.MethodGet, "/a/*", mockhandler)
+		r.Route(http.MethodGet, "/a/:id", mockhandler)
+	})
+	assert.PanicsWithValue(t, "web: 非法路由，已有路径参数路由。不允许同时注册通配符路由和参数路由 [*]", func() {
+		r.Route(http.MethodGet, "/a/b/:id", mockhandler)
+		r.Route(http.MethodGet, "/a/b/*", mockhandler)
+	})
+	r = newRouter()
+	assert.PanicsWithValue(t, "web: 非法路由，已有通配符路由。不允许同时注册通配符路由和参数路由 [:id]", func() {
+		r.Route(http.MethodGet, "/*", mockhandler)
+		r.Route(http.MethodGet, "/:id", mockhandler)
+	})
+	r = newRouter()
+	assert.PanicsWithValue(t, "web: 非法路由，已有路径参数路由。不允许同时注册通配符路由和参数路由 [*]", func() {
+		r.Route(http.MethodGet, "/:id", mockhandler)
+		r.Route(http.MethodGet, "/*", mockhandler)
+	})
+
+	// 参数冲突
+	assert.PanicsWithValue(t, "web: 路由冲突，参数路由冲突，已有 :id, 新注册 :name", func() {
+		r.Route(http.MethodGet, "/a/b/c/:id", mockhandler)
+		r.Route(http.MethodGet, "/a/b/c/:name", mockhandler)
+	})
+	// ****************************************************************************
 }
 
 func (r *router) rootEqual(w *router) (msg string, ok bool) {
@@ -199,8 +256,22 @@ func (n *node) nodeEqual(w *node) (msg string, ok bool) {
 		if !ok {
 			return fmt.Sprintf("%s 与 %s节点 starChild 不相等,%s", n.path, w.path, msg), false
 		}
+	} else {
+		if w.starChild != nil {
+			return fmt.Sprintf("%s 与 %s节点 starChild 不相等,%s", n.path, w.path, msg), false
+		}
 	}
-
+	// 比较paramChild
+	if n.paramChild != nil {
+		msg, ok := n.paramChild.nodeEqual(w.paramChild)
+		if !ok {
+			return fmt.Sprintf("%s 与 %s节点 paramChild 不相等,%s", n.path, w.path, msg), false
+		}
+	} else {
+		if w.paramChild != nil {
+			return fmt.Sprintf("%s 与 %s节点 paramChild 不相等,%s", n.path, w.path, msg), false
+		}
+	}
 	//比较children
 	if len(n.children) != len(w.children) {
 		return fmt.Sprintf("%s and %s子节点长度不等", n.path, w.path), false
@@ -245,16 +316,33 @@ func TestFindRoute(t *testing.T) {
 			method: http.MethodPost,
 			path:   "/order/*",
 		},
+		// 参数路由
+		{
+			method: http.MethodGet,
+			path:   "/param/:id",
+		},
+		{
+			method: http.MethodGet,
+			path:   "/param/:id/detail",
+		},
+		{
+			method: http.MethodGet,
+			path:   "/param/:id/*",
+		},
+		{
+			method: http.MethodGet,
+			path:   "/param/:id/detail/:username",
+		},
 	}
 
 	mockHandler := func(ctx *Context) {}
 
 	testCases := []struct {
-		name     string
-		method   string
-		path     string
-		found    bool
-		wantNode *node
+		name   string
+		method string
+		path   string
+		found  bool
+		mi     *matchInfo
 	}{
 		{
 			name:   "method not found",
@@ -270,39 +358,43 @@ func TestFindRoute(t *testing.T) {
 			method: http.MethodGet,
 			path:   "/",
 			found:  true,
-			wantNode: &node{
-				path:       "/",
-				handlefunc: mockHandler,
-			},
+			mi: &matchInfo{
+				n: &node{
+					path:       "/",
+					handlefunc: mockHandler,
+				}},
 		},
 		{
 			name:   "user",
 			method: http.MethodGet,
 			path:   "/user",
 			found:  true,
-			wantNode: &node{
-				path:       "user",
-				handlefunc: mockHandler,
-			},
+			mi: &matchInfo{
+				n: &node{
+					path:       "user",
+					handlefunc: mockHandler,
+				}},
 		},
 		{
 			name:   "no handler",
 			method: http.MethodPost,
 			path:   "/order",
 			found:  true,
-			wantNode: &node{
-				path: "order",
-			},
+			mi: &matchInfo{
+				n: &node{
+					path: "order",
+				}},
 		},
 		{
 			name:   "two layer",
 			method: http.MethodPost,
 			path:   "/order/create",
 			found:  true,
-			wantNode: &node{
-				path:       "create",
-				handlefunc: mockHandler,
-			},
+			mi: &matchInfo{
+				n: &node{
+					path:       "create",
+					handlefunc: mockHandler,
+				}},
 		},
 		// 通配符匹配
 		{
@@ -311,10 +403,11 @@ func TestFindRoute(t *testing.T) {
 			method: http.MethodPost,
 			path:   "/order/delete",
 			found:  true,
-			wantNode: &node{
-				path:       "*",
-				handlefunc: mockHandler,
-			},
+			mi: &matchInfo{
+				n: &node{
+					path:       "*",
+					handlefunc: mockHandler,
+				}},
 		},
 		{
 			// 命中通配符在中间的
@@ -323,18 +416,77 @@ func TestFindRoute(t *testing.T) {
 			method: http.MethodGet,
 			path:   "/user/Tom/home",
 			found:  true,
-			wantNode: &node{
-				path:       "home",
-				handlefunc: mockHandler,
-			},
+			mi: &matchInfo{
+				n: &node{
+					path:       "home",
+					handlefunc: mockHandler,
+				}},
 		},
 		{
 			// 比 /order/* 多了一段
-			name:     "overflow",
-			method:   http.MethodPost,
-			path:     "/order/delete/123",
-			found:    false,
-			wantNode: nil,
+			name:   "overflow",
+			method: http.MethodPost,
+			path:   "/order/delete/123",
+			found:  false,
+			mi:     nil,
+		},
+		// 参数匹配
+		{
+			// 命中 /param/:id
+			name:   ":id",
+			method: http.MethodGet,
+			path:   "/param/123",
+			found:  true,
+			mi: &matchInfo{
+				n: &node{
+					path:       ":id",
+					handlefunc: mockHandler,
+				},
+				pathParams: map[string]string{"id": "123"},
+			},
+		},
+		{
+			// 命中 /param/:id/*
+			name:   ":id*",
+			method: http.MethodGet,
+			path:   "/param/123/abc",
+			found:  true,
+			mi: &matchInfo{
+				n: &node{
+					path:       "*",
+					handlefunc: mockHandler,
+				},
+				pathParams: map[string]string{"id": "123"},
+			},
+		},
+
+		{
+			// 命中 /param/:id/detail
+			name:   ":id*detail",
+			method: http.MethodGet,
+			path:   "/param/123/detail",
+			found:  true,
+			mi: &matchInfo{
+				n: &node{
+					path:       "detail",
+					handlefunc: mockHandler,
+				},
+				pathParams: map[string]string{"id": "123"},
+			},
+		},
+		{
+			// 命中 /param/:id/detail/:username
+			name:   ":id*detail:username",
+			method: http.MethodGet,
+			path:   "/param/123/detail/liming",
+			found:  true,
+			mi: &matchInfo{
+				n: &node{
+					path:       ":username",
+					handlefunc: mockHandler,
+				},
+				pathParams: map[string]string{"id": "123", "username": "liming"},
+			},
 		},
 	}
 	r := newRouter()
@@ -344,14 +496,14 @@ func TestFindRoute(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			n, found := r.findRouter(tc.method, tc.path)
+			mi, found := r.findRouter(tc.method, tc.path)
 			assert.Equal(t, tc.found, found)
 			if !found {
 				return
 			}
-			assert.Equal(t, tc.wantNode.path, n.path)
-			wantVal := reflect.ValueOf(tc.wantNode.handlefunc)
-			nVal := reflect.ValueOf(n.handlefunc)
+			assert.Equal(t, tc.mi.n.path, mi.n.path)
+			wantVal := reflect.ValueOf(tc.mi.n.handlefunc)
+			nVal := reflect.ValueOf(mi.n.handlefunc)
 			assert.Equal(t, wantVal, nVal)
 		})
 

@@ -41,18 +41,23 @@ func newRouter() *router {
 // 路由树分发匹配路径功能
 func (ro *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := NewContext(w, r)
-	root, ok := ro.findRouter(ctx.R.Method, ctx.R.URL.Path)
-	if !ok || root.handlefunc == nil {
+	mi, ok := ro.findRouter(ctx.R.Method, ctx.R.URL.Path)
+	if !ok || mi.n.handlefunc == nil {
 		ctx.W.WriteHeader(http.StatusNotFound)
 		ctx.W.Write([]byte("你找的页面未发现"))
 		return
 	}
-	root.handlefunc(ctx)
+	ctx.pathParams = mi.pathParams
+	mi.n.handlefunc(ctx)
 }
 
 // addRoute 注册路由。
 // method 是 HTTP 方法
-// path 必须以 / 开始并且结尾不能有 /，中间也不允许有连续的 /
+// - path 必须以 / 开始并且结尾不能有 /，中间也不允许有连续的 /
+// - 已经注册了的路由，无法被覆盖。例如 /user/home 注册两次，会冲突
+// - 不能在同一个位置注册不同的参数路由，例如 /user/:id 和 /user/:name 冲突
+// - 不能在同一个位置同时注册通配符路由和参数路由，例如 /user/:id 和 /user/* 冲突
+// - 同名路径参数，在路由匹配的时候，值会被覆盖。例如 /user/:id/abc/:id，那么 /user/123/abc/456 最终 id = 456
 func (ro *router) Route(method string, pattern string, handlefunc func(c *Context)) {
 	//用户注册路由时可以针对格式提要求
 	if pattern == "" {
@@ -86,6 +91,8 @@ func (ro *router) Route(method string, pattern string, handlefunc func(c *Contex
 		}
 		root = root.ChildOrCreate(seg)
 	}
+	// paramChild 参数匹配要多一步，需要保存匹配到的参数
+
 	if root.handlefunc != nil {
 		//已经有注册了
 		panic(fmt.Sprintf("web: 与现已有的路由冲突[%s]", pattern))
@@ -95,30 +102,37 @@ func (ro *router) Route(method string, pattern string, handlefunc func(c *Contex
 
 // findRoute 查找对应的节点
 // 注意，返回的 node 内部 HandleFunc 不为 nil 才算是注册了路由，findout只管查找结点，不负责确认handlefunc 是否存在，即不区分中间节点和末尾节点
-func (ro *router) findRouter(method string, pattern string) (*node, bool) {
+func (ro *router) findRouter(method string, pattern string) (*matchInfo, bool) {
 	root, ok := ro.trees[method]
 	if !ok {
 		return nil, false
 	}
 	if pattern == "/" {
-		return root, true
+		return &matchInfo{n: root}, true
 	}
 	// 客户查询路由时格式可能多种多样
+	mi := matchInfo{}
 	segs := strings.Split(strings.Trim(pattern, "/"), "/") //去除首尾的"/", 例如"/user/post/"=>"user/post"=>[user,post]
 	for _, seg := range segs {
-		root, ok = root.Childof(seg)
+		var isParamMatch bool
+		root, ok, isParamMatch = root.Childof(seg)
 		if !ok {
 			return nil, false
 		}
+		if isParamMatch {
+			mi.addValue(root.path[1:], seg)
+		}
 	}
-	return root, true
+	mi.n = root
+	return &mi, true
 }
 
 // node 代表路由树的节点
 // 路由树的匹配顺序是：
 // 1. 静态完全匹配
-// 2. 通配符匹配
-// **不支持** a/b/c & a/*/* 两个路由同时注册下, a/b/d 匹配（即无法回溯）
+// 2. 路径参数匹配：形式 :param_name
+// 3. 通配符匹配：*
+// **不支持** a/b/c & a/*/* 两个路由同时注册下, a/b/d 匹配（即不回溯匹配）
 // **不支持** a/* 与 a/b/c 匹配
 type node struct {
 	path       string           // path URL路径
@@ -128,38 +142,76 @@ type node struct {
 	paramChild *node            // 路径参数匹配 :id
 }
 
-// childof 查找并返回子节点
-func (n *node) Childof(pattern string) (*node, bool) {
+// childof 查找并返回子节点 *node
+// first bool 返回确认是否找到对应节点
+// second bool 返回确认是否是 paramChild,触发参数保存操作
+func (n *node) Childof(pattern string) (node *node, isFound bool, isParamMatch bool) {
 	if n.children == nil { //无子节点
-		// if n.starChild != nil {
-		// 	return n.starChild,true
-		// }
-		// return nil, false
-		return n.starChild, (n.starChild != nil) //有通配符就返回通配符，无通配符就返回失败
+		if n.paramChild != nil { //参数匹配符合
+			return n.paramChild, true, true
+		}
+		return n.starChild, (n.starChild != nil), false //有通配符就返回通配符，无通配符就返回失败
 	}
 	res, ok := n.children[pattern]
 	if !ok { //子节点未找到对应path 的node
-		return n.starChild, (n.starChild != nil) //有通配符就返回通配符，无通配符就返回失败
+		if n.paramChild != nil { //参数匹配符合
+			return n.paramChild, true, true
+		}
+		return n.starChild, (n.starChild != nil), false //有通配符就返回通配符，无通配符就返回失败
 	}
-	return res, ok // 找到对应node即返回
+	return res, ok, false // 找到对应node即返回
 }
 
-// childOrCreate 查找子节点，如果子节点不存在就创建一个
-// 并且将子节点放回去了 children 中
+// childOrCreate 查找子节点，如果子节点不存在就创建一个,并且将子节点放回去了 children 中
+// 不允许同时有参数匹配和通配符匹配,user/:username && user/* 不能同时存在
 func (n *node) ChildOrCreate(pattern string) *node {
+	//先确认参数匹配 paramChild
+	if pattern[0] == ':' {
+		if n.starChild != nil {
+			panic(fmt.Sprintf("web: 非法路由，已有通配符路由。不允许同时注册通配符路由和参数路由 [%s]", pattern))
+		}
+		if n.paramChild != nil {
+			if n.paramChild.path != pattern {
+				panic(fmt.Sprintf("web: 路由冲突，参数路由冲突，已有 %s, 新注册 %s", n.paramChild.path, pattern))
+			}
+		} else {
+			n.paramChild = &node{path: pattern}
+		}
+		return n.paramChild
+	}
+	//再确认通配符 starChild
 	if pattern == "*" {
+		if n.paramChild != nil {
+			panic(fmt.Sprintf("web: 非法路由，已有路径参数路由。不允许同时注册通配符路由和参数路由 [%s]", pattern))
+		}
 		if n.starChild == nil {
 			n.starChild = &node{path: "*"}
 		}
 		return n.starChild
 	}
+	// 最后确认是否是子节点
 	if n.children == nil { //无子节点
 		n.children = make(map[string]*node)
 	}
 	root, ok := n.children[pattern]
-	if !ok {
+	if !ok { //如果没有找到，那么会创建一个新的节点node
 		n.children[pattern] = &node{path: pattern}
 		return n.children[pattern]
 	}
+	//Children 找到了就直接返回
 	return root
+}
+
+// findrouter路由匹配 返回的结果
+type matchInfo struct {
+	n          *node             //返回找到的路由节点
+	pathParams map[string]string //返回中间记录的参数匹配结果
+}
+
+func (m *matchInfo) addValue(pattern string, seg string) {
+	if m.pathParams == nil {
+		//支持不同参数，可能不止一段，即 user/:id/:username 多段参数匹配
+		m.pathParams = map[string]string{}
+	}
+	m.pathParams[pattern] = seg // 相同命名参数仅保留最后的匹配数字
 }

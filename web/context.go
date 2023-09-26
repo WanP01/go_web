@@ -12,15 +12,17 @@ import (
 // ——————————————————————————————————————————————————————————————
 // 基于code 复用，封装一部分代码用于w,r的读写操作
 type Context struct {
-	W http.ResponseWriter
-	R *http.Request
+	W          http.ResponseWriter
+	R          *http.Request
+	pathParams map[string]string
 }
 
 // 新建
 func NewContext(w http.ResponseWriter, r *http.Request) *Context {
 	return &Context{
-		W: w,
-		R: r,
+		W:          w,
+		R:          r,
+		pathParams: map[string]string{}, // 参数路由匹配中的参数对应值
 	}
 }
 
