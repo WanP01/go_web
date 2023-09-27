@@ -15,7 +15,7 @@ func Sign(c *web.Context) {
 
 	req := web.NewsignUpReq()
 	// 从r（request）读取数据
-	err := c.ReadJson(req)
+	err := c.BindJSON(req)
 
 	//测试用例~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	// example := signUpReq{
@@ -36,7 +36,7 @@ func Sign(c *web.Context) {
 
 	resp := web.NewcommonResponse(4, "输入的信息为", req)
 
-	err = c.WriterJson(http.StatusOK, resp)
+	err = c.RespJson(http.StatusOK, resp)
 	//写入失败的情况下，无法返回给客户信息，应当输出日志
 	if err != nil {
 		fmt.Printf("写入响应失败：%v", err)

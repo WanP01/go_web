@@ -170,15 +170,18 @@ const (
 // 4. 通配符匹配：*
 // 这是不回溯匹配
 type node struct {
-	typ         nodetype         //路由类型
-	path        string           // path URL路径
-	children    map[string]*node //子path到子节点的映射
-	handlefunc  HandleFunc       //命中路由后的处理函数
-	starChild   *node            // 通配符匹配 *
-	paramChild  *node            // 路径参数匹配 :param
-	regexpChild *node            // 正则路由 :paramname(regExpr)
-	regExpr     *regexp.Regexp   //正则路由表达式  regExpr
-	paramName   string           // 参数名称 => 正则和参数匹配都可以使用
+	typ  nodetype //路由类型(必填)
+	path string   //path URL路径(必填)
+
+	handlefunc HandleFunc //命中路由后的处理函数
+
+	children  map[string]*node // 静态匹配(子path到子节点的映射)
+	starChild *node            // 通配符匹配 *
+
+	paramChild  *node          // 路径参数匹配 :param
+	regexpChild *node          // 正则匹配 :paramname(regExpr)
+	regExpr     *regexp.Regexp // 正则路由表达式  regExpr
+	paramName   string         // 参数名称 => 正则和参数匹配都可以使用
 }
 
 // childof 查找并返回子节点 *node
