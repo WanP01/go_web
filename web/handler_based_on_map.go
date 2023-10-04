@@ -1,7 +1,5 @@
 package web
 
-import "net/http"
-
 //——————————————————————————————————抽象层————————————————————————————————————————————————————————
 
 // 移至 router.go
@@ -22,23 +20,22 @@ type Routable interface {
 //基于go map基本数据结构结构实现路由分发和注册功能
 type HandlerBasedonMap struct {
 	//路由器的“method+path” 匹配 相应的处理函数 handlefunc
-	handlefuncs map[string]func(c *Context)
+	handlefuncs map[string]HandleFunc
 }
 
 //路由分发（基于map实现）：Router——>call ServeHTTP()
-func (h *HandlerBasedonMap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	key := h.KeyGen(r.Method, r.URL.Path)
+func (h *HandlerBasedonMap) findRouter(method string, pattern string) (*matchInfo, bool) {
+	key := h.KeyGen(method, pattern)
 	//处理逻辑是否存在对应key：value
 	if Handlefunc, OK := h.handlefuncs[key]; OK {
-		Handlefunc(NewContext(w, r))
+		return &matchInfo{n: &node{path: key, route: key, handlefunc: Handlefunc}}, true
 	} else {
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write([]byte("该页面未找到"))
+		return nil, false
 	}
 }
 
 //路由注册功能
-func (h *HandlerBasedonMap) Route(method string, pattern string, handlefunc func(c *Context)) {
+func (h *HandlerBasedonMap) Route(method string, pattern string, handlefunc HandleFunc) {
 	key := h.KeyGen(method, pattern) //对应路径生成key
 	h.handlefuncs[key] = handlefunc  //注册对应路径的处理函数，本质代替了http.HandleFunc作用
 }
@@ -50,8 +47,8 @@ func (h *HandlerBasedonMap) KeyGen(method string, path string) string {
 
 //HandlerBasedonMap生成函数
 func NewHandlerBasedonMap() *HandlerBasedonMap {
-	return &HandlerBasedonMap{handlefuncs: make(map[string]func(c *Context))}
+	return &HandlerBasedonMap{handlefuncs: make(map[string]HandleFunc)}
 }
 
 //GO语言小技巧，用于确保HandleBasedonMap确实实现Router接口（如有方法未实现，会报错）
-var _ Router = &HandlerBasedonMap{}
+var _ Routable = &HandlerBasedonMap{}

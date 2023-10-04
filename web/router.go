@@ -2,7 +2,6 @@ package web
 
 import (
 	"fmt"
-	"net/http"
 	"regexp"
 	"strings"
 )
@@ -12,15 +11,16 @@ import (
 // 处理函数抽象
 type HandleFunc func(ctx *Context)
 
-// 包装一下HandlerBasedonMap,当前过于依赖HandlerBasedonMap的struct，设计应当依赖于接口
-type Router interface {
-	http.Handler // 组合原有serverHttp接口方法，用于实现：“路由的分发功能”——DefaultServerMux
-	Routable     // 组合原有sdkHttpServer的route注册功能，用于实现：“路由的注册&查询功能”——HandleFunc
-}
+// // 包装一下HandlerBasedonMap,当前过于依赖HandlerBasedonMap的struct，设计应当依赖于接口
+// type Router interface {
+// 	http.Handler // 组合原有serverHttp接口方法，用于实现：“路由的分发功能”——DefaultServerMux
+// 	Routable     // 组合原有sdkHttpServer的route注册功能，用于实现：“路由的注册&查询功能”——HandleFunc
+// }
 
 // 将原有sdkHttpServer的route注册功能包装进Handler接口，避免Server直接调用HandlerBasedonMap的内部结构
 type Routable interface {
-	Route(method string, pattern string, handlefunc func(c *Context)) //路由注册功能
+	Route(method string, pattern string, handlefunc HandleFunc)  //路由注册功能
+	findRouter(method string, pattern string) (*matchInfo, bool) // 路由查找功能
 	// Route 注册一个路由
 	// method 是 HTTP 方法
 	// 我们并不采取这种设计方案（多路由处理函数）
@@ -39,18 +39,8 @@ func newRouter() *router {
 	}
 }
 
-// 路由树分发匹配路径功能
-func (ro *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx := NewContext(w, r)
-	mi, ok := ro.findRouter(ctx.R.Method, ctx.R.URL.Path)
-	if !ok || mi.n.handlefunc == nil {
-		ctx.W.WriteHeader(http.StatusNotFound)
-		ctx.W.Write([]byte("你找的页面未发现"))
-		return
-	}
-	ctx.pathParams = mi.pathParams
-	mi.n.handlefunc(ctx)
-}
+// 确保router实现Routable接口
+var _ Routable = &router{}
 
 // addRoute 注册路由。
 // method 是 HTTP 方法
@@ -70,7 +60,7 @@ func (ro *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // - 正则，参数，通配符 不能注册在同一节点
 // - 正则，参数，通配符 不支持重复注册
 // - 不支持并发实现注册（即服务器启动后的注册新路由）（？）
-func (ro *router) Route(method string, pattern string, handlefunc func(c *Context)) {
+func (ro *router) Route(method string, pattern string, handlefunc HandleFunc) {
 	//禁止非正常格式路由
 	if pattern == "" {
 		panic("web:路由是空字符串")
@@ -86,7 +76,7 @@ func (ro *router) Route(method string, pattern string, handlefunc func(c *Contex
 	root, ok := ro.trees[method]
 	if !ok { //全新的Method方法
 		//创建默认的'/'node节点
-		root = &node{path: "/"}
+		root = &node{path: "/", route: "/"}
 		ro.trees[method] = root
 	}
 	if pattern == "/" {
@@ -96,7 +86,7 @@ func (ro *router) Route(method string, pattern string, handlefunc func(c *Contex
 		root.handlefunc = handlefunc
 		return
 	}
-
+	routepath := ""
 	//非根节点：静态/正则/参数/通配符
 	segs := strings.Split(pattern[1:], "/") //去除第一个“/”，根节点已经特殊处理了
 	// segs := strings.Split(strings.Trim(pattern, "/"), "/") //不采用，因为会去除首尾的所有的"/", 错误路由例如"//user/post/"=>"user/post" 无法识别
@@ -105,8 +95,10 @@ func (ro *router) Route(method string, pattern string, handlefunc func(c *Contex
 			panic(fmt.Sprintf("web: 非法路由。不允许使用 //a/b, /a//b 之类的路由, [%s]", pattern))
 		}
 		root = root.ChildOrCreate(seg)
+		routepath += "/"
+		routepath += seg
+		root.route = routepath
 	}
-	// paramChild 参数匹配要多一步，需要保存匹配到的参数
 
 	if root.handlefunc != nil {
 		//已经有注册了
@@ -170,8 +162,9 @@ const (
 // 4. 通配符匹配：*
 // 这是不回溯匹配
 type node struct {
-	typ  nodetype //路由类型(必填)
-	path string   //path URL路径(必填)
+	typ   nodetype //路由类型(必填)
+	path  string   //path URL路径(必填)
+	route string   //根节点到此节点的完整路由路径(必填)
 
 	handlefunc HandleFunc //命中路由后的处理函数
 

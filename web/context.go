@@ -13,20 +13,42 @@ import (
 // ——————————————————————————————————————————————————————————————
 // 基于code 复用，封装一部分代码用于w,r的读写操作
 type Context struct {
-	W          http.ResponseWriter
-	R          *http.Request
-	pathParams map[string]string // 路由匹配参数（正则或参数路径）
+	//request info
+	R                *http.Request
+	PathParams       map[string]string // 路由匹配参数（正则或参数路径）
+	cacheQueryValues url.Values        // query value的缓存
+	MatchRoute       string            //匹配到的完整路由节点
 
-	cacheQueryValues url.Values // query value的缓存
+	//response info
+	// Resp 原生的 ResponseWriter没有对外开放的接口方法
+	//如果直接使用 W ，相当于绕开了 RespStatusCode 和 RespData，这时候响应数据直接被发送到前端，其它中间件将无法修改响应
+	// 增加了RespStatusCode 和 RespData后，其实可以考虑将W做成私有的
+	W http.ResponseWriter
+	// 缓存的响应部分,这部分数据会在最后刷新
+	RespStatusCode int    //响应码（供middleware调用）
+	RespData       []byte //保存的响应内容（json格式，供middleware调用）
+
+	// 万一将来有需求，可以考虑支持这个，但是需要复杂一点的机制
+	// Body []byte 用户返回的响应
+	// Err error 用户执行的 Error
+
+	// 页面渲染的引擎
+	tplEngine TemplateEngine
+
+	// 用户可以自由决定在这里存储什么，
+	// 主要用于解决在不同 Middleware 之间数据传递的问题
+	// 但是要注意
+	// 1. UserValues 在初始状态的时候总是 nil，你需要自己手动初始化
+	// 2. 不要在New预定义,这样在判定是否nil的时候会失败，即map[string]any{} != nil)
+	UserValues map[string]any
 }
 
 // 新建
-func NewContext(w http.ResponseWriter, r *http.Request) *Context {
+func NewContext(w http.ResponseWriter, r *http.Request, tplEngine TemplateEngine) *Context {
 	return &Context{
-		W:                w,
-		R:                r,
-		pathParams:       map[string]string{}, // 参数路由匹配中的参数对应值
-		cacheQueryValues: map[string][]string{},
+		W:         w,
+		R:         r,
+		tplEngine: tplEngine, //由客户初始化模板引擎
 	}
 }
 
@@ -74,7 +96,7 @@ func (c *Context) QueryValue(key string) StringValue {
 
 // 处理路径参数：查询路由匹配路径的参数（不是url,是url与路由的参数匹配值）
 func (c *Context) PathValue(key string) StringValue {
-	val, ok := c.pathParams[key]
+	val, ok := c.PathParams[key]
 	if !ok {
 		return StringValue{err: errors.New("web: 找不到这个 key")}
 	}
@@ -118,13 +140,46 @@ func (s StringValue) ToInt64() (int64, error) {
 // 	return strconv.ParseInt(val, 10, 64)
 // }
 
+//*********************************************************************************************
 // 处理输出要解决的问题：
 // • 序列化输出：按照某种特定的格式输出数据，例如 JSON 或者 XML
-// x 渲染页面：要考虑模板定位、命名和渲染的问题
+// • 渲染页面：要考虑模板定位、命名和渲染的问题
 // x 处理状态码：允许用户返回特定状态码的响应，例如 HTTP 404
-// x 错误页面：特定 HTTP Status 或者 error 的时候，能够重定向到一个错误页面，例如404 被重定向到首页
+// • 错误页面：特定 HTTP Status 或者 error 的时候，能够重定向到一个错误页面，例如404 被重定向到首页
 // • 设置 Cookie ：设置 Cookie 的值
 // • 设置 Header：往 Header放东西
+
+// 序列化输出：按照某种特定的格式输出数据，例如 JSON 或者 XML
+func (c *Context) RespJson(code int, data any) error {
+	val, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	c.RespStatusCode = code
+	c.RespData = val
+	return err
+}
+
+// 设置 Cookie ：设置 Cookie 的值
+func (c *Context) SetCookie(cookie *http.Cookie) {
+	http.SetCookie(c.W, cookie)
+	//c.W.Header().Set("Set-Cookie",cookie.String())
+	// c.R.Cookie(key),c.R.Cookies(key) 查询cookie
+	// c.R.AddCookie(cookie) 增加cookie
+}
+
+// • 设置 Header：往 Header放东西
+func (c *Context) setHeader(key, val string) {
+	c.W.Header().Add(key, val)
+}
+
+// 进一步封装以便提供更便捷的方法
+func (c *Context) OKRequestJson(data interface{}) error {
+	return c.RespJson(http.StatusOK, data) //status code:200
+}
+func (c *Context) BadRequestJson(data interface{}) error {
+	return c.RespJson(http.StatusBadRequest, data) //status code:400
+}
 
 // 不导出的内部结构，用于json 反序列化存放 Sign 相关信息
 type signUpReq struct {
@@ -152,34 +207,12 @@ func NewcommonResponse(b int, m string, d interface{}) *commmonResponse {
 	}
 }
 
-// 序列化输出：按照某种特定的格式输出数据，例如 JSON 或者 XML
-func (c *Context) RespJson(code int, data any) error {
-	val, err := json.Marshal(data)
+func (c *Context) Render(tplName string, data any) error {
+	var err error
+	c.RespData, err = c.tplEngine.Render(tplName, data)
+	c.RespStatusCode = 200
 	if err != nil {
-		return err
+		c.RespStatusCode = 500
 	}
-	c.W.WriteHeader(code)
-	_, err = c.W.Write(val)
 	return err
-}
-
-// 设置 Cookie ：设置 Cookie 的值
-func (c *Context) SetCookie(cookie *http.Cookie) {
-	http.SetCookie(c.W, cookie)
-	//c.W.Header().Set("Set-Cookie",cookie.String())
-	// c.R.Cookie(key),c.R.Cookies(key) 查询cookie
-	// c.R.AddCookie(cookie) 增加cookie
-}
-
-// • 设置 Header：往 Header放东西
-func (c *Context) setHeader(key, val string) {
-	c.W.Header().Add(key, val)
-}
-
-// 进一步封装以便提供更便捷的方法
-func (c *Context) OKRequestJson(data interface{}) error {
-	return c.RespJson(http.StatusOK, data) //status code:200
-}
-func (c *Context) BadRequestJson(data interface{}) error {
-	return c.RespJson(http.StatusBadRequest, data) //status code:400
 }
