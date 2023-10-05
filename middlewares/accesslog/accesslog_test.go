@@ -38,7 +38,7 @@ func TestServeWithMiddleware(t *testing.T) {
 
 	mdlsOpt := web.ServeWithMiddleware(AcesslogMiddleware)
 
-	s := web.NewsdkHttpServer("test_mdls", mdlsOpt)
+	s := web.NewServerEngine("test_mdls", mdlsOpt)
 	fmt.Printf("s.Mdls: %v\n", s.Mdls)
 	s.Route(http.MethodGet, "/user/:id", func(c *web.Context) {
 		fmt.Printf("c: %v\n", c.R.Host)

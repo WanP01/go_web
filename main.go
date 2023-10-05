@@ -7,7 +7,7 @@ import (
 
 func main() {
 	//创建新的Server
-	server := web.NewsdkHttpServer("test_server")
+	server := web.NewServerEngine("test_server")
 
 	//绑定handlefunc
 	server.Route("POST", "/hello", view.Sign)

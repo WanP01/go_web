@@ -8,7 +8,7 @@ import (
 
 func TestSever(t *testing.T) {
 
-	server := NewsdkHttpServer("testSever")
+	server := NewServerEngine("testSever")
 
 	server.Get("/", func(ctx *Context) {
 		ctx.W.Write([]byte("hello,this is index_get"))
@@ -53,7 +53,7 @@ func TestServerWithRenderEngine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := NewsdkHttpServer("test", ServeWithTemplateEngine(&GOTemplateEngine{T: tpl}))
+	s := NewServerEngine("test", ServeWithTemplateEngine(&GOTemplateEngine{T: tpl}))
 	s.Get("/login", func(ctx *Context) {
 		er := ctx.Render("login.gohtml", nil)
 		if er != nil {

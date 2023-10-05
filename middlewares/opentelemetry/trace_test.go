@@ -19,7 +19,7 @@ func TestTraceMiddleware(t *testing.T) {
 	TracerMiddleware := NewTraceMiddlewareBuilder(tracer).Build()
 	OPT := web.ServeWithMiddleware(TracerMiddleware)
 
-	s := web.NewsdkHttpServer("test_serve", OPT)
+	s := web.NewServerEngine("test_serve", OPT)
 	s.Get("/user", func(ctx *web.Context) {
 		c, span := tracer.Start(ctx.R.Context(), "first_layer")
 		defer span.End()

@@ -42,7 +42,7 @@ func TestSession(t *testing.T) {
 	})
 
 	//初始化服务器
-	s := web.NewsdkHttpServer("test", mdlOPT)
+	s := web.NewServerEngine("test", mdlOPT)
 
 	s.Get("/login", func(ctx *web.Context) {
 		// 前面就是你登录的时候一大堆的登录校验

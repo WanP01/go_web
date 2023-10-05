@@ -18,7 +18,7 @@ func TestMiddlewareBuilder_Build(t *testing.T) {
 		},
 	}).Build())
 
-	s := web.NewsdkHttpServer("test", mdlOPT)
+	s := web.NewServerEngine("test", mdlOPT)
 	s.Get("/user", func(ctx *web.Context) {
 		ctx.RespData = []byte("hello, world")
 	})

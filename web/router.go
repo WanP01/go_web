@@ -14,10 +14,10 @@ type HandleFunc func(ctx *Context)
 // // 包装一下HandlerBasedonMap,当前过于依赖HandlerBasedonMap的struct，设计应当依赖于接口
 // type Router interface {
 // 	http.Handler // 组合原有serverHttp接口方法，用于实现：“路由的分发功能”——DefaultServerMux
-// 	Routable     // 组合原有sdkHttpServer的route注册功能，用于实现：“路由的注册&查询功能”——HandleFunc
+// 	Routable     // 组合原有ServerEngine的route注册功能，用于实现：“路由的注册&查询功能”——HandleFunc
 // }
 
-// 将原有sdkHttpServer的route注册功能包装进Handler接口，避免Server直接调用HandlerBasedonMap的内部结构
+// 将原有ServerEngine的route注册功能包装进Handler接口，避免Server直接调用HandlerBasedonMap的内部结构
 type Routable interface {
 	Route(method string, pattern string, handlefunc HandleFunc)  //路由注册功能
 	findRouter(method string, pattern string) (*matchInfo, bool) // 路由查找功能

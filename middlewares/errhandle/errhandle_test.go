@@ -28,7 +28,7 @@ func TestNewMiddlewareBuilder(t *testing.T) {
 	mdlOPT := web.ServeWithMiddleware(NewMiddlewareBuilder().
 		RegisterError(404, buffer.Bytes()).Build())
 	//注册中间件
-	s := web.NewsdkHttpServer("test", mdlOPT)
+	s := web.NewServerEngine("test", mdlOPT)
 
 	s.Get("/hello", func(ctx *web.Context) {
 		ctx.RespData = []byte("hello, world")

@@ -20,7 +20,7 @@ func TestPrometheus(t *testing.T) {
 	}
 	promMDL := prom.Build()
 	proOPT := web.ServeWithMiddleware(promMDL)
-	s := web.NewsdkHttpServer("test_prometheus", proOPT)
+	s := web.NewServerEngine("test_prometheus", proOPT)
 	s.Get("/hello", func(ctx *web.Context) {
 		ctx.W.Write([]byte("hello, world"))
 	})

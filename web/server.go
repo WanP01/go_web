@@ -1,9 +1,6 @@
 package web
 
 import (
-	// "log"
-	// "net"
-
 	"log"
 	"net/http"
 )
@@ -17,7 +14,7 @@ type Server interface {
 }
 
 // 创建Server实例
-type sdkHttpServer struct {
+type ServerEngine struct {
 	Name      string         //用于log日志名字
 	Router    Routable       //用于路由分发的结构体
 	Mdls      []Middleware   // 注册的路由
@@ -25,11 +22,11 @@ type sdkHttpServer struct {
 }
 
 // 修改Server内部的字段的函数
-type HttpSeverOPT func(s *sdkHttpServer)
+type HttpSeverOPT func(s *ServerEngine)
 
 // 实现Server创建功能
-func NewsdkHttpServer(name string, OPT ...HttpSeverOPT) *sdkHttpServer {
-	SHS := &sdkHttpServer{
+func NewServerEngine(name string, OPT ...HttpSeverOPT) *ServerEngine {
+	SHS := &ServerEngine{
 		Name: name,
 		// Router: NewHandlerBasedonMap(), // 用于map实现的路由树 V1
 		Router:    newRouter(),
@@ -45,23 +42,23 @@ func NewsdkHttpServer(name string, OPT ...HttpSeverOPT) *sdkHttpServer {
 
 // 更改Server中间件mdls字段的OPTION模式
 func ServeWithMiddleware(mdles ...Middleware) HttpSeverOPT {
-	return func(s *sdkHttpServer) {
+	return func(s *ServerEngine) {
 		s.Mdls = mdles
 	}
 }
 
 // 更改Server tplEngine 字段的OPTION模式
 func ServeWithTemplateEngine(engine TemplateEngine) HttpSeverOPT {
-	return func(s *sdkHttpServer) {
+	return func(s *ServerEngine) {
 		s.tplEngine = engine
 	}
 }
 
-// 确保 sdkHttpServer 肯定实现了 Server 接口
-var _ Server = &sdkHttpServer{}
+// 确保 ServerEngine 肯定实现了 Server 接口
+var _ Server = &ServerEngine{}
 
 // Server路由树分发匹配路径功能
-func (s *sdkHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (s *ServerEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := NewContext(w, r, s.tplEngine)
 	// 最后一个应该是 HTTPServer 执行路由匹配，执行用户代码
 	root := s.serve
@@ -85,7 +82,7 @@ func (s *sdkHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func (s *sdkHttpServer) flashResp(c *Context) {
+func (s *ServerEngine) flashResp(c *Context) {
 	if c.RespStatusCode > 0 {
 		c.W.WriteHeader(c.RespStatusCode)
 	}
@@ -95,7 +92,7 @@ func (s *sdkHttpServer) flashResp(c *Context) {
 	}
 }
 
-func (s *sdkHttpServer) serve(ctx *Context) {
+func (s *ServerEngine) serve(ctx *Context) {
 	mi, ok := s.findRouter(ctx.R.Method, ctx.R.URL.Path)
 	if !ok || mi.n.handlefunc == nil {
 		ctx.RespStatusCode = http.StatusNotFound
@@ -107,30 +104,30 @@ func (s *sdkHttpServer) serve(ctx *Context) {
 }
 
 // 实现Server路由绑定功能,底层调用http.HandleFunc
-func (s *sdkHttpServer) Route(method string, pattern string, handlefunc HandleFunc) {
+func (s *ServerEngine) Route(method string, pattern string, handlefunc HandleFunc) {
 	s.Router.Route(method, pattern, handlefunc)
 }
-func (s *sdkHttpServer) findRouter(method string, pattern string) (*matchInfo, bool) {
+func (s *ServerEngine) findRouter(method string, pattern string) (*matchInfo, bool) {
 	return s.Router.findRouter(method, pattern)
 }
 
 // 便捷方法：注册Get路由
-func (s *sdkHttpServer) Get(pattern string, handlefunc HandleFunc) {
+func (s *ServerEngine) Get(pattern string, handlefunc HandleFunc) {
 	s.Route(http.MethodGet, pattern, handlefunc)
 }
 
 // 便捷方法：注册Post路由
-func (s *sdkHttpServer) Post(pattern string, handlefunc HandleFunc) {
+func (s *ServerEngine) Post(pattern string, handlefunc HandleFunc) {
 	s.Route(http.MethodPost, pattern, handlefunc)
 }
 
 // 需要实现Server初始化功能，调用http.ListenAndServer()
 // 实现自己的Router路由分发器s.Router
-func (s *sdkHttpServer) Start(addr string) error {
+func (s *ServerEngine) Start(addr string) error {
 	return http.ListenAndServe(addr, s)
 }
 
 // 实现Server关闭功能，pass
-func (s *sdkHttpServer) Shutdown() {
+func (s *ServerEngine) Shutdown() {
 
 }

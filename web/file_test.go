@@ -9,7 +9,7 @@ import (
 )
 
 func TestFileUp(t *testing.T) {
-	s := NewsdkHttpServer("test")
+	s := NewServerEngine("test")
 	s.Get("/upload_page", func(ctx *Context) {
 		tpl := template.New("upload")
 		tpl, err := tpl.Parse(`
@@ -43,7 +43,7 @@ func TestFileUp(t *testing.T) {
 }
 
 func TestFileDownloader_Handle(t *testing.T) {
-	s := NewsdkHttpServer("test")
+	s := NewServerEngine("test")
 	s.Get("/download", (&FileDownloader{
 		// 下载的文件所在目录
 		Dir: "C:\\Users\\wp199\\Desktop\\go_pro\\go_web\\testdata\\download",
@@ -53,7 +53,7 @@ func TestFileDownloader_Handle(t *testing.T) {
 }
 
 func TestStaticResourceHandler_Handle(t *testing.T) {
-	s := NewsdkHttpServer("test")
+	s := NewServerEngine("test")
 	handler := NewStaticResourceHandler()
 	s.Get("/img/:file", handler.handle())
 	// 在浏览器里面输入 localhost:8081/img/come_on_baby.jpg
