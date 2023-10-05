@@ -53,12 +53,13 @@ func (s *Store) Generate(ctx context.Context, id string) (session.Session, error
 
 // 更新过期时间
 func (s *Store) Refresh(ctx context.Context, id string) error {
-	s.RWM.Lock()
-	defer s.RWM.Unlock()
+
 	sess, err := s.Get(ctx, id) // cache缓存内取出对应id的session
 	if err != nil {
 		return nil
 	}
+	s.RWM.Lock()
+	defer s.RWM.Unlock()
 	s.cache.Set(sess.ID(), sess, s.expiration) // 变更cache缓存内session对应的过期时间
 	return nil
 }
