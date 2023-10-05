@@ -11,7 +11,6 @@ import (
 // 处理函数抽象
 type HandleFunc func(ctx *Context)
 
-// // 包装一下HandlerBasedonMap,当前过于依赖HandlerBasedonMap的struct，设计应当依赖于接口
 // type Router interface {
 // 	http.Handler // 组合原有serverHttp接口方法，用于实现：“路由的分发功能”——DefaultServerMux
 // 	Routable     // 组合原有ServerEngine的route注册功能，用于实现：“路由的注册&查询功能”——HandleFunc
@@ -49,15 +48,14 @@ var _ Routable = &router{}
 // - 已经注册了的路由，无法被覆盖。例如 /user/home 注册两次，会冲突
 // - 不支持大小写忽略
 // 通配符匹配
-// - 不支持 a/b/c & a/*/* 两个路由同时注册下, a/b/d 匹配（即不回溯匹配）
+// X 不支持 a/b/c & a/*/* 两个路由同时注册下, a/b/d 匹配（即不回溯匹配）
 // - a/*/c 不支持 a/b1/b2/c ,但 a/b/* 支持 a/b/c1/c2 , 末尾支持多段匹配
 // 参数匹配
 // - 不能在同一个位置注册不同的参数路由，例如 /user/:id 和 /user/:name 冲突
 // - 同名路径参数，在路由匹配的时候，值会被覆盖。例如 /user/:id/abc/:id，那么 /user/123/abc/456 最终 id = 456
 // 正则匹配
-// -不支持重复路由（？）
+// - 相同正则路由的情况下获得路由不确定（map遍历的不确定性）
 // 整体
-// - 正则，参数，通配符 不能注册在同一节点
 // - 正则，参数，通配符 不支持重复注册
 // - 不支持并发实现注册（即服务器启动后的注册新路由）（？）
 func (ro *router) Route(method string, pattern string, handlefunc HandleFunc) {
@@ -110,33 +108,20 @@ func (ro *router) Route(method string, pattern string, handlefunc HandleFunc) {
 // findRoute 查找对应的节点
 // 注意，返回的 node 内部 HandleFunc 不为 nil 才算是注册了路由，findout只管查找结点，不负责确认handlefunc 是否存在，即不区分中间节点和末尾节点
 func (ro *router) findRouter(method string, pattern string) (*matchInfo, bool) {
-	root, ok := ro.trees[method]
+	root, ok := ro.trees[method] //先确认路由树是否有对应httpMethod
 	if !ok {
 		return nil, false
 	}
-	if pattern == "/" {
+	if pattern == "/" { // 根节点单独处理
 		return &matchInfo{n: root}, true
 	}
-
 	mi := matchInfo{}
 	segs := strings.Split(strings.Trim(pattern, "/"), "/") //去除首尾的"/", 例如"/user/post/"=>"user/post"=>[user,post]
-	for _, seg := range segs {
-		var n *node
-		var isFound bool
-		n, isFound = root.Childof(seg)
-		if !isFound {
-			if root.typ == nodetypeStar {
-				mi.n = root
-				return &mi, true
-			}
-			return nil, false
-		}
-		if n.paramName != "" {
-			mi.addValue(n.paramName, seg)
-		}
-		root = n
+	res := root.BackSearchChild(segs, 0, &mi)
+	if res == nil { //没找到对应节点
+		return nil, false
 	}
-	mi.n = root
+	mi.n = res
 	return &mi, true
 }
 
@@ -171,38 +156,93 @@ type node struct {
 	children  map[string]*node // 静态匹配(子path到子节点的映射)
 	starChild *node            // 通配符匹配 *
 
-	paramChild  *node          // 路径参数匹配 :param
-	regexpChild *node          // 正则匹配 :paramname(regExpr)
-	regExpr     *regexp.Regexp // 正则路由表达式  regExpr
-	paramName   string         // 参数名称 => 正则和参数匹配都可以使用
+	paramChild  *node            // 路径参数匹配 :param(一般只设一个就行，没有太多的必要)
+	regexpChild map[string]*node // 正则匹配 :paramname(regExpr)
+	regExpr     *regexp.Regexp   // 正则路由表达式  regExpr
+	paramName   string           // 参数名称 => 正则和参数匹配都可以使用
+}
+
+func (n *node) BackSearchChild(segs []string, cnt int, mi *matchInfo) *node {
+
+	if cnt == len(segs) {
+		return n
+	} else { // 末尾 * 通配符的情况下实现匹配
+		if n.typ == nodetypeStar && n.handlefunc != nil {
+			return n
+		}
+	}
+	//这一轮的对比URL pattern
+	pattern := segs[cnt]
+	// 先进入静态路由匹配
+	if n.children != nil {
+		if cn, ok := n.children[pattern]; ok {
+			res := cn.BackSearchChild(segs, cnt+1, mi)
+			if res != nil {
+				return res
+			}
+		}
+	}
+	// 正则匹配可能有多个
+	if n.regexpChild != nil {
+		for exprs, regn := range n.regexpChild { //遍历n.regexpChild看是否能匹配上
+			ismatch := regexp.MustCompile(exprs).MatchString(pattern)
+			if ismatch { //匹配上了，加入nodelist(可能的节点列表)
+				mi.addValue(n.regexpChild[exprs].paramName, pattern)
+				res := regn.BackSearchChild(segs, cnt+1, mi)
+				if res != nil {
+					return res
+				}
+				mi.RemoveValue(n.regexpChild[exprs].paramName)
+			} // 没有匹配上就跳过
+		}
+	}
+	//参数匹配只有一个（:id和:name没有明显区别）
+	if n.paramChild != nil {
+		mi.addValue(n.paramChild.paramName, pattern)
+		res := n.paramChild.BackSearchChild(segs, cnt+1, mi)
+		if res != nil {
+			return res
+		}
+		mi.RemoveValue(n.paramChild.paramName)
+	}
+	//通配符匹配（注意末尾*可以匹配多段）
+	if n.starChild != nil {
+		res := n.starChild.BackSearchChild(segs, cnt+1, mi)
+		if res != nil {
+			return res
+		}
+	}
+	return nil
 }
 
 // childof 查找并返回子节点 *node
-// first bool 返回确认是否找到对应节点
-func (n *node) Childof(pattern string) (node *node, isFound bool) {
-	if n.children == nil { //无子节点
-		return n.childOfNonStatic(pattern)
-	}
-	res, ok := n.children[pattern]
-	if !ok { //子节点未找到对应path 的node
-		return n.childOfNonStatic(pattern)
-	}
-	return res, ok // 找到对应node即返回
-}
-
-// childOfNonStatic 从非静态匹配的子节点里面查找
-func (n *node) childOfNonStatic(pattern string) (*node, bool) {
-	if n.regexpChild != nil {
-		ismatch := n.regExpr.MatchString(pattern)
-		if ismatch { // 正则匹配符合
-			return n.regexpChild, true
+// bool 返回确认是否找到对应节点
+/* func (n *node) Childof(pattern string) (node []*node, isFound bool) {
+	nodeList := make([]*node, 0)
+	if n.children != nil { //静态匹配
+		res, ok := n.children[pattern]
+		if ok { //子节点未找到对应path 的node
+			nodeList = append(nodeList, res)
 		}
 	}
-	if n.paramChild != nil { //参数匹配符合
-		return n.paramChild, true
+	if n.regexpChild != nil { //正则匹配
+		for exprs, regn := range n.regexpChild { //遍历n.regexpChild看是否能匹配上
+			ismatch := regexp.MustCompile(exprs).MatchString(pattern)
+			if ismatch { //匹配上了，加入nodelist(可能的节点列表)
+				nodeList = append(nodeList, regn)
+			} // 没有匹配上就跳过
+		}
 	}
-	return n.starChild, (n.starChild != nil) //有通配符就返回通配符，无通配符就返回失败
-}
+	if n.paramChild != nil { // 参数匹配
+
+		nodeList = append(nodeList, n.paramChild)
+
+	}
+	if n.starChild != nil { //通配符匹配
+		nodeList = append(nodeList, n.starChild)
+	}
+	return nodeList, (len(nodeList) != 0) // 找到对应node即返回
+} */
 
 // childOrCreate 查找子节点，
 // 首先会判断 path 是不是通配符路径
@@ -221,12 +261,6 @@ func (n *node) ChildOrCreate(pattern string) *node {
 	}
 	//再确认通配符 starChild
 	if pattern == "*" {
-		if n.paramChild != nil {
-			panic(fmt.Sprintf("web: 非法路由，已有参数路由。不允许同时注册参数路由和通配符路由 [%s]", pattern))
-		}
-		if n.regexpChild != nil {
-			panic(fmt.Sprintf("web: 非法路由，已有正则路由。不允许同时注册正则路由和通配符路由 [%s]", pattern))
-		}
 		if n.starChild == nil {
 			n.starChild = &node{path: "*", typ: nodetypeStar}
 		}
@@ -235,7 +269,10 @@ func (n *node) ChildOrCreate(pattern string) *node {
 	// 最后确认是否是子节点 children
 	if n.children == nil { //无子节点
 		n.children = make(map[string]*node)
+		n.children[pattern] = &node{path: pattern, typ: nodetypeStatic}
+		return n.children[pattern]
 	}
+	//有子节点搜索一下
 	root, ok := n.children[pattern]
 	if !ok { //如果没有找到，那么会创建一个新的节点node
 		n.children[pattern] = &node{path: pattern, typ: nodetypeStatic}
@@ -246,37 +283,31 @@ func (n *node) ChildOrCreate(pattern string) *node {
 }
 
 func (n *node) childOrCreateReg(pattern string, expr *regexp.Regexp, param_Name string) *node {
-	if n.paramChild != nil {
-		panic(fmt.Sprintf("web: 非法路由，已有参数路由。不允许同时注册参数路由和正则路由 [%s]", pattern))
-	}
-	if n.starChild != nil {
-		panic(fmt.Sprintf("web: 非法路由，已有通配符路由。不允许同时注册通配符路由和正则路由 [%s]", pattern))
+	if n.regexpChild == nil {
+		n.regexpChild = make(map[string]*node) //初始化,直接新建子node
+		n.regexpChild[expr.String()] = &node{path: pattern, typ: nodetypeRegexp, paramName: param_Name, regExpr: expr}
 	}
 	if n.regexpChild != nil {
-		if n.regexpChild.path != pattern || n.regExpr.String() != expr.String() {
-			panic(fmt.Sprintf("web: 路由冲突，正则路由冲突，已有 %s, 新注册 %s", n.regexpChild.path, pattern))
+		regn, ok := n.regexpChild[expr.String()] //用对应这个子node的expr的string作为map[key]
+		if !ok {                                 // 现有正则子节点内没有这种表达式，新增子node即可
+			n.regexpChild[expr.String()] = &node{path: pattern, typ: nodetypeRegexp, paramName: param_Name, regExpr: expr}
+
+		} else if regn.path != pattern || regn.regExpr.String() != expr.String() { //现有正则子节点内存在这种表达式，对比是否一致
+			panic(fmt.Sprintf("web: 路由冲突，正则路由冲突，已有 %s, 新注册 %s", regn.path, pattern))
 		}
-	} else {
-		n.regExpr = expr
-		n.regexpChild = &node{path: pattern, typ: nodetypeRegexp, paramName: param_Name}
 	}
-	return n.regexpChild
+	//Children 找到了就直接返回
+	return n.regexpChild[expr.String()]
 }
 
 func (n *node) childOrCreateParam(pattern string, param_Name string) *node {
-	if n.regexpChild != nil {
-		panic(fmt.Sprintf("web: 非法路由，已有正则路由。不允许同时注册正则路由和参数路由 [%s]", pattern))
-	}
-	if n.starChild != nil {
-		panic(fmt.Sprintf("web: 非法路由，已有通配符路由。不允许同时注册通配符路由和参数路由 [%s]", pattern))
-	}
-	if n.paramChild != nil {
-		if n.paramChild.path != pattern {
-			panic(fmt.Sprintf("web: 路由冲突，参数路由冲突，已有 %s, 新注册 %s", n.paramChild.path, pattern))
-		}
-	} else {
+	if n.paramChild == nil {
 		n.paramChild = &node{path: pattern, typ: nodetypeParam, paramName: param_Name}
 	}
+	if n.paramChild != nil && n.paramChild.path != pattern {
+		panic(fmt.Sprintf("web: 路由冲突，参数路由冲突，已有 %s, 新注册 %s", n.paramChild.path, pattern))
+	}
+	//Children 找到了就直接返回
 	return n.paramChild
 }
 
@@ -292,6 +323,15 @@ func (m *matchInfo) addValue(pattern string, seg string) {
 		m.pathParams = map[string]string{}
 	}
 	m.pathParams[pattern] = seg // 相同命名参数仅保留最后的匹配数字
+}
+
+func (m *matchInfo) RemoveValue(pattern string) {
+	delete(m.pathParams, pattern)
+	if len(m.pathParams) == 0 {
+		//如果m.pathParams没有数值了，可以消去初始化，方便后面判nil
+		m.pathParams = nil
+	}
+
 }
 
 // string 匹配的路径名（也是参数的存储的变量名）
