@@ -3,6 +3,7 @@ package web
 import (
 	"log"
 	"net/http"
+	"strconv"
 )
 
 // 创建Sever顶层设计
@@ -86,6 +87,7 @@ func (s *ServerEngine) flashResp(c *Context) {
 	if c.RespStatusCode > 0 {
 		c.W.WriteHeader(c.RespStatusCode)
 	}
+	c.W.Header().Set("Content-Length", strconv.Itoa(len(c.RespData)))
 	_, err := c.W.Write(c.RespData)
 	if err != nil {
 		log.Fatalln("回写响应失败", err)

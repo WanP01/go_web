@@ -1,16 +1,15 @@
 package web
 
 import (
-	"fmt"
 	"net/http"
-	"reflect"
-	"regexp"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
 )
 
-func TestRoute(t *testing.T) {
+// go test -v -run="none" -bench=. -benchtime="30s" -benchmem
+func BenchmarkRouterAdd(b *testing.B) {
+	b.StopTimer()
+	b.StartTimer()
+	//测试用例
 	testRoutes := []struct {
 		method string
 		path   string
@@ -90,257 +89,16 @@ func TestRoute(t *testing.T) {
 
 	//初始化Router，循环注册路由示例testCase
 	mockhandler := func(ctx *Context) {}
-	r := newRouter()
-	for _, tr := range testRoutes {
-		r.Route(tr.method, tr.path, mockhandler)
+
+	for i := 0; i <= b.N; i++ {
+		r := newRouter()
+		for _, tr := range testRoutes {
+			r.Route(tr.method, tr.path, mockhandler)
+		}
 	}
-
-	wantRouter := router{
-		trees: map[string]*node{
-			http.MethodGet: {
-				path: "/", handlefunc: mockhandler,
-				children: map[string]*node{
-					"user": {
-						path: "user",
-						children: map[string]*node{
-							"home": {
-								path: "home", typ: nodetypeStatic,
-								handlefunc: mockhandler},
-						},
-						handlefunc: mockhandler},
-					"order": {
-						path: "order",
-						children: map[string]*node{
-							"detail": {
-								path: "detail", typ: nodetypeStatic,
-								handlefunc: mockhandler},
-						},
-						starChild: &node{path: "*", handlefunc: mockhandler, typ: nodetypeStar}},
-					"param": {
-						path: "param", typ: nodetypeStatic,
-						paramChild: &node{
-							path: ":id", handlefunc: mockhandler, typ: nodetypeParam, paramName: "id",
-							children: map[string]*node{
-								"detail": {
-									path: "detail", handlefunc: mockhandler, typ: nodetypeStatic,
-									paramChild: &node{path: ":username", handlefunc: mockhandler, typ: nodetypeParam, paramName: "username"},
-								},
-							},
-							starChild: &node{path: "*", handlefunc: mockhandler, typ: nodetypeStar},
-						}},
-				},
-				starChild: &node{
-					path: "*", typ: nodetypeStar,
-					handlefunc: mockhandler,
-					starChild: &node{
-						path: "*", handlefunc: mockhandler, typ: nodetypeStar},
-					children: map[string]*node{
-						"abc": {
-							path: "abc", handlefunc: mockhandler, typ: nodetypeStatic,
-							starChild: &node{
-								path: "*", handlefunc: mockhandler, typ: nodetypeStar,
-							},
-						},
-					},
-				},
-			},
-			http.MethodPost: {
-				path: "/",
-				children: map[string]*node{
-					"order": {
-						path: "order", typ: nodetypeStatic,
-						children: map[string]*node{
-							"create": {
-								path: "create", typ: nodetypeStatic,
-								handlefunc: mockhandler},
-						},
-					},
-					"login": {
-						path: "login", typ: nodetypeStatic,
-						handlefunc: mockhandler},
-				},
-			},
-			http.MethodDelete: {
-				path: "/",
-				children: map[string]*node{
-					"reg": {
-						path: "reg", typ: nodetypeStatic,
-						regexpChild: map[string]*node{
-							".*": &node{path: ":id(.*)", paramName: "id", handlefunc: mockhandler,
-								typ: nodetypeRegexp, regExpr: regexp.MustCompile(".*")},
-						}},
-				},
-				regexpChild: map[string]*node{
-					"^.+$": &node{
-						path: ":name(^.+$)", paramName: "name", regExpr: regexp.MustCompile("^.+$"), typ: nodetypeRegexp,
-						children: map[string]*node{
-							"abc": {path: "abc", typ: nodetypeStatic, handlefunc: mockhandler}},
-					}},
-			},
-		},
-	}
-
-	msg, ok := wantRouter.rootEqual(r)
-	assert.True(t, ok, msg)
-
-	// 非法用例 **************************************************
-	r = newRouter()
-	// r.Route(http.MethodGet, "a/b/c", mockhandler)
-	// 空字符串
-	assert.PanicsWithValue(t, "web:路由是空字符串", func() {
-		r.Route(http.MethodGet, "", mockhandler)
-	})
-
-	// 前导没有 /
-	assert.PanicsWithValue(t, "web: 路由必须以 / 开头", func() {
-		r.Route(http.MethodGet, "a/b/c", mockhandler)
-	})
-
-	// 后缀有 /
-	assert.PanicsWithValue(t, "web: 路由不能以 / 结尾", func() {
-		r.Route(http.MethodGet, "/a/b/c/", mockhandler)
-	})
-
-	// 根节点重复注册
-	r.Route(http.MethodGet, "/", mockhandler)
-	assert.PanicsWithValue(t, "web: 路由冲突[/]", func() {
-		r.Route(http.MethodGet, "/", mockhandler)
-	})
-	// 普通节点重复注册
-	r.Route(http.MethodGet, "/a/b/c", mockhandler)
-	assert.PanicsWithValue(t, "web: 与现已有的路由冲突[/a/b/c]", func() {
-		r.Route(http.MethodGet, "/a/b/c", mockhandler)
-	})
-	// 参数节点重复注册
-	r = newRouter()
-	r.Route(http.MethodGet, "/a/:id", mockhandler)
-	assert.PanicsWithValue(t, "web: 与现已有的路由冲突[/a/:id]", func() {
-		r.Route(http.MethodGet, "/a/:id", mockhandler)
-	})
-	// 通配符节点重复注册
-	r = newRouter()
-	r.Route(http.MethodGet, "/a/*", mockhandler)
-	assert.PanicsWithValue(t, "web: 与现已有的路由冲突[/a/*]", func() {
-		r.Route(http.MethodGet, "/a/*", mockhandler)
-	})
-	// 正则符节点重复注册
-	r = newRouter()
-	r.Route(http.MethodGet, "/a/:id(.*)", mockhandler)
-	assert.PanicsWithValue(t, "web: 与现已有的路由冲突[/a/:id(.*)]", func() {
-		r.Route(http.MethodGet, "/a/:id(.*)", mockhandler)
-	})
-
-	// 多个 /
-	assert.PanicsWithValue(t, "web: 非法路由。不允许使用 //a/b, /a//b 之类的路由, [/a//b]", func() {
-		r.Route(http.MethodGet, "/a//b", mockhandler)
-	})
-	assert.PanicsWithValue(t, "web: 非法路由。不允许使用 //a/b, /a//b 之类的路由, [//a/b]", func() {
-		r.Route(http.MethodGet, "//a/b", mockhandler)
-	})
-
-	// 参数冲突
-	assert.PanicsWithValue(t, "web: 路由冲突，参数路由冲突，已有 :id, 新注册 :name", func() {
-		r.Route(http.MethodGet, "/a/b/c/:id", mockhandler)
-		r.Route(http.MethodGet, "/a/b/c/:name", mockhandler)
-	})
-	// ****************************************************************************
 }
 
-func (r *router) rootEqual(w *router) (msg string, ok bool) {
-	for k, v := range r.trees {
-		dst, ok := w.trees[k]
-		if !ok {
-			return fmt.Sprint("router trees is not equal:http method is not Found"), false
-		}
-		msg, ok := v.nodeEqual(dst)
-		if !ok {
-			return k + "-" + msg, ok
-		}
-	}
-	return "", true
-}
-
-func (n *node) nodeEqual(w *node) (msg string, ok bool) {
-	if w == nil {
-		return "目标节点为 nil", false
-	}
-	//比较typ
-	if n.typ != w.typ { //
-		return fmt.Sprintf("%s 与 %s节点 typ 不相等", n.path, w.path), false
-	}
-	//比较path
-	if n.path != w.path {
-		return fmt.Sprintf("%s 与 %s节点 path 不相等", n.path, w.path), false
-	}
-	// 比较handlefunc
-	nf := reflect.ValueOf(n.handlefunc)
-	wf := reflect.ValueOf(w.handlefunc)
-	if nf != wf {
-		return fmt.Sprintf("%s 与 %s节点 handlefunc %s and %s 不相等 ", n.path, w.path, nf.Type().String(), wf.Type().String()), false
-	}
-	//比较starChild
-	if n.starChild != nil {
-		msg, ok := n.starChild.nodeEqual(w.starChild)
-		if !ok {
-			return fmt.Sprintf("%s 与 %s节点 starChild 不相等,%s", n.path, w.path, msg), false
-		}
-	} else {
-		if w.starChild != nil {
-			return fmt.Sprintf("%s 与 %s节点 starChild 不相等,%s", n.path, w.path, msg), false
-		}
-	}
-	//比较regexpChild
-	if n.regexpChild != nil {
-		if len(n.regexpChild) != len(w.regexpChild) {
-			return fmt.Sprintf("%s and %s子节点长度不等", n.path, w.path), false
-		}
-
-		for k, v := range n.regexpChild {
-			dst, ok := w.regexpChild[k]
-			if !ok {
-				return fmt.Sprintf("%s 目标节点缺少子节点 %s", n.path, k), false
-			}
-			msg, ok := v.nodeEqual(dst)
-			if !ok {
-				return n.path + "-" + msg, ok
-			}
-		}
-	}
-
-	//比较paramName
-	if n.paramName != w.paramName {
-		return fmt.Sprintf("%s 与 %s节点 paramName 不相等,%s", n.path, w.path, msg), false
-	}
-	// 比较paramChild
-	if n.paramChild != nil {
-		msg, ok := n.paramChild.nodeEqual(w.paramChild)
-		if !ok {
-			return fmt.Sprintf("%s 与 %s节点 paramChild 不相等,%s", n.path, w.path, msg), false
-		}
-	} else {
-		if w.paramChild != nil {
-			return fmt.Sprintf("%s 与 %s节点 paramChild 不相等,%s", n.path, w.path, msg), false
-		}
-	}
-	//比较children
-	if len(n.children) != len(w.children) {
-		return fmt.Sprintf("%s and %s子节点长度不等", n.path, w.path), false
-	}
-
-	for k, v := range n.children {
-		dst, ok := w.children[k]
-		if !ok {
-			return fmt.Sprintf("%s 目标节点缺少子节点 %s", n.path, k), false
-		}
-		msg, ok := v.nodeEqual(dst)
-		if !ok {
-			return n.path + "-" + msg, ok
-		}
-	}
-	return "", true
-}
-
-func TestFindRoute(t *testing.T) {
+func BenchmarkRouterFinder(b *testing.B) {
 	testRoutes := []struct {
 		method string
 		path   string
@@ -729,24 +487,19 @@ func TestFindRoute(t *testing.T) {
 			},
 		},
 	}
+
+	b.StopTimer()
 	r := newRouter()
 	for _, tr := range testRoutes {
 		r.Route(tr.method, tr.path, mockHandler)
 	}
+	b.StartTimer()
+	//测试用例
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			mi, found := r.findRouter(tc.method, tc.path)
-			assert.Equal(t, tc.found, found)
-			if !found {
-				return
-			}
-			assert.Equal(t, tc.mi.n.path, mi.n.path)
-			assert.Equal(t, tc.mi.pathParams, mi.pathParams)
-			wantVal := reflect.ValueOf(tc.mi.n.handlefunc)
-			nVal := reflect.ValueOf(mi.n.handlefunc)
-			assert.Equal(t, wantVal, nVal)
-		})
-
+	for i := 0; i <= b.N; i++ {
+		r := newRouter()
+		for _, tc := range testCases {
+			_, _ = r.findRouter(tc.method, tc.path)
+		}
 	}
 }

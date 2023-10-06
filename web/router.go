@@ -11,11 +11,6 @@ import (
 // 处理函数抽象
 type HandleFunc func(ctx *Context)
 
-// type Router interface {
-// 	http.Handler // 组合原有serverHttp接口方法，用于实现：“路由的分发功能”——DefaultServerMux
-// 	Routable     // 组合原有ServerEngine的route注册功能，用于实现：“路由的注册&查询功能”——HandleFunc
-// }
-
 // 将原有ServerEngine的route注册功能包装进Handler接口，避免Server直接调用HandlerBasedonMap的内部结构
 type Routable interface {
 	Route(method string, pattern string, handlefunc HandleFunc)  //路由注册功能
@@ -117,8 +112,8 @@ func (ro *router) findRouter(method string, pattern string) (*matchInfo, bool) {
 	}
 	mi := matchInfo{}
 	segs := strings.Split(strings.Trim(pattern, "/"), "/") //去除首尾的"/", 例如"/user/post/"=>"user/post"=>[user,post]
-	res := root.BackSearchChild(segs, 0, &mi)
-	if res == nil { //没找到对应节点
+	res, ok := root.BackSearchChild(segs, 0, &mi)
+	if !ok { //没找到对应节点
 		return nil, false
 	}
 	mi.n = res
@@ -162,23 +157,20 @@ type node struct {
 	paramName   string           // 参数名称 => 正则和参数匹配都可以使用
 }
 
-func (n *node) BackSearchChild(segs []string, cnt int, mi *matchInfo) *node {
+// 按照 静态，正则，参数，通配符的优先级递归遍历 route找到第一个符合的节点，通过回溯记录参数和正则匹配的信息
+func (n *node) BackSearchChild(segs []string, cnt int, mi *matchInfo) (*node, bool) {
 
 	if cnt == len(segs) {
-		return n
-	} else { // 末尾 * 通配符的情况下实现匹配
-		if n.typ == nodetypeStar && n.handlefunc != nil {
-			return n
-		}
+		return n, true
 	}
 	//这一轮的对比URL pattern
 	pattern := segs[cnt]
 	// 先进入静态路由匹配
 	if n.children != nil {
 		if cn, ok := n.children[pattern]; ok {
-			res := cn.BackSearchChild(segs, cnt+1, mi)
-			if res != nil {
-				return res
+			res, ok := cn.BackSearchChild(segs, cnt+1, mi)
+			if ok {
+				return res, true
 			}
 		}
 	}
@@ -188,9 +180,9 @@ func (n *node) BackSearchChild(segs []string, cnt int, mi *matchInfo) *node {
 			ismatch := regexp.MustCompile(exprs).MatchString(pattern)
 			if ismatch { //匹配上了，加入nodelist(可能的节点列表)
 				mi.addValue(n.regexpChild[exprs].paramName, pattern)
-				res := regn.BackSearchChild(segs, cnt+1, mi)
-				if res != nil {
-					return res
+				res, ok := regn.BackSearchChild(segs, cnt+1, mi)
+				if ok {
+					return res, true
 				}
 				mi.RemoveValue(n.regexpChild[exprs].paramName)
 			} // 没有匹配上就跳过
@@ -199,25 +191,29 @@ func (n *node) BackSearchChild(segs []string, cnt int, mi *matchInfo) *node {
 	//参数匹配只有一个（:id和:name没有明显区别）
 	if n.paramChild != nil {
 		mi.addValue(n.paramChild.paramName, pattern)
-		res := n.paramChild.BackSearchChild(segs, cnt+1, mi)
-		if res != nil {
-			return res
+		res, ok := n.paramChild.BackSearchChild(segs, cnt+1, mi)
+		if ok {
+			return res, true
 		}
 		mi.RemoveValue(n.paramChild.paramName)
 	}
 	//通配符匹配（注意末尾*可以匹配多段）
 	if n.starChild != nil {
-		res := n.starChild.BackSearchChild(segs, cnt+1, mi)
-		if res != nil {
-			return res
+		res, ok := n.starChild.BackSearchChild(segs, cnt+1, mi)
+		if ok {
+			return res, true
+		}
+		// 末尾 * 通配符的情况下实现匹配
+		if (n.starChild.typ == nodetypeStar) && (n.starChild.handlefunc != nil) {
+			return n.starChild, true
 		}
 	}
-	return nil
+	return nil, false
 }
 
-// childof 查找并返回子节点 *node
+// children of 层序遍历查找所有满足的子节点 *node
 // bool 返回确认是否找到对应节点
-/* func (n *node) Childof(pattern string) (node []*node, isFound bool) {
+func (n *node) Childof(pattern string) ([]*node, bool) {
 	nodeList := make([]*node, 0)
 	if n.children != nil { //静态匹配
 		res, ok := n.children[pattern]
@@ -242,7 +238,7 @@ func (n *node) BackSearchChild(segs []string, cnt int, mi *matchInfo) *node {
 		nodeList = append(nodeList, n.starChild)
 	}
 	return nodeList, (len(nodeList) != 0) // 找到对应node即返回
-} */
+}
 
 // childOrCreate 查找子节点，
 // 首先会判断 path 是不是通配符路径
