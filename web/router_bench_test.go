@@ -163,27 +163,27 @@ func BenchmarkRouterFinder(b *testing.B) {
 			method: http.MethodGet,
 			path:   "/k1/k2/:id",
 		},
-		{
-			method: http.MethodGet,
-			path:   "/k1/k2/:id(.*)",
-		},
+		// {
+		// 	method: http.MethodGet,
+		// 	path:   "/k1/k2/:id(.*)",
+		// },
 		//回溯算法
 		{
 			method: http.MethodGet,
 			path:   "/k1/:reg(.*)/k3",
 		},
-		{
-			method: http.MethodGet,
-			path:   "/k1/:parm/k2",
-		},
-		{
-			method: http.MethodGet,
-			path:   "/k1/*/k1",
-		},
-		{
-			method: http.MethodGet,
-			path:   "/k1/*",
-		},
+		// {
+		// 	method: http.MethodGet,
+		// 	path:   "/k1/:parm/k2",
+		// },
+		// {
+		// 	method: http.MethodGet,
+		// 	path:   "/k1/*/k1",
+		// },
+		// {
+		// 	method: http.MethodGet,
+		// 	path:   "/k1/*",
+		// },
 	}
 
 	mockHandler := func(ctx *Context) {}

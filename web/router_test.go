@@ -166,12 +166,12 @@ func TestRoute(t *testing.T) {
 					"reg": {
 						path: "reg", typ: nodetypeStatic,
 						regexpChild: map[string]*node{
-							".*": &node{path: ":id(.*)", paramName: "id", handlefunc: mockhandler,
+							".*": {path: ":id(.*)", paramName: "id", handlefunc: mockhandler,
 								typ: nodetypeRegexp, regExpr: regexp.MustCompile(".*")},
 						}},
 				},
 				regexpChild: map[string]*node{
-					"^.+$": &node{
+					"^.+$": {
 						path: ":name(^.+$)", paramName: "name", regExpr: regexp.MustCompile("^.+$"), typ: nodetypeRegexp,
 						children: map[string]*node{
 							"abc": {path: "abc", typ: nodetypeStatic, handlefunc: mockhandler}},
