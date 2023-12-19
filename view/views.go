@@ -10,7 +10,7 @@ import (
 //函数主体 down
 //——————————————————————————————————————————————————————————————
 
-// 登录实验的具体函数 Sign
+// Sign 登录实验的具体函数 Sign
 func Sign(c *web.Context) {
 
 	req := web.NewsignUpReq()

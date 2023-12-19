@@ -8,7 +8,7 @@ import (
 	"strconv"
 )
 
-// ——————————————————————————————————————————————————————————————
+// Context ——————————————————————————————————————————————————————————————
 // 封装的结构，避免给框架使用者暴露太多
 // ——————————————————————————————————————————————————————————————
 // 基于code 复用，封装一部分代码用于w,r的读写操作
@@ -43,7 +43,7 @@ type Context struct {
 	UserValues map[string]any
 }
 
-// 新建
+// NewContext 新建
 func NewContext(w http.ResponseWriter, r *http.Request, tplEngine TemplateEngine) *Context {
 	return &Context{
 		W:         w,
@@ -61,7 +61,7 @@ func NewContext(w http.ResponseWriter, r *http.Request, tplEngine TemplateEngine
 // • 读取 Header：从 Header 里面读取出来特定的值，并且转化为对应的类型
 // X 模糊读取：按照一定的顺序，尝试从 Body、Header、路径参数或者 Cookie 里面读取值，并且转化为特定类型 (不支持)
 
-// 反序列化输入：将 Body 字节流转换成一个具体的类型(解析body中的数据为json格式,输入到val中)
+// BindJSON 反序列化输入：将 Body 字节流转换成一个具体的类型(解析body中的数据为json格式,输入到val中)
 // 重复读取 body：http.Request 的 Body 默认是只能读取一次，不能重复读取的
 func (c *Context) BindJSON(val any) error {
 	if c.R.Body == nil {
@@ -72,7 +72,7 @@ func (c *Context) BindJSON(val any) error {
 	return decoder.Decode(val)
 }
 
-// 处理表单输入：表单+URL数据按key取值,也是只取 From[key][0]第一个，一般存在表单的情况下取得是表单赋的值
+// FormValue 处理表单输入：表单+URL数据按key取值,也是只取 From[key][0]第一个，一般存在表单的情况下取得是表单赋的值
 func (c *Context) FormValue(key string) StringValue {
 	err := c.R.ParseForm() // 解析传输过来的数据
 	if err != nil {
@@ -82,7 +82,7 @@ func (c *Context) FormValue(key string) StringValue {
 	// 不担心FromValue重复 ParseForm,内部有缓存 From, 确认From 有数据就会不做ParseForm
 }
 
-// 处理查询参数：query URL 查询数据（url ?后面的部分）按key取值，只取第一个 Values[k][0]
+// QueryValue 处理查询参数：query URL 查询数据（url ?后面的部分）按key取值，只取第一个 Values[k][0]
 func (c *Context) QueryValue(key string) StringValue {
 	if c.cacheQueryValues == nil {
 		c.cacheQueryValues = c.R.URL.Query()
@@ -94,7 +94,7 @@ func (c *Context) QueryValue(key string) StringValue {
 	return StringValue{val: val[0]}
 }
 
-// 处理路径参数：查询路由匹配路径的参数（不是url,是url与路由的参数匹配值）
+// PathValue 处理路径参数：查询路由匹配路径的参数（不是url,是url与路由的参数匹配值）
 func (c *Context) PathValue(key string) StringValue {
 	val, ok := c.PathParams[key]
 	if !ok {
@@ -103,7 +103,7 @@ func (c *Context) PathValue(key string) StringValue {
 	return StringValue{val: val}
 }
 
-// 读取 Header：从 Header 里面读取出来特定的值，并且转化为对应的类型（格式转换可以用StringValue）
+// HeaderJson 读取 Header：从 Header 里面读取出来特定的值，并且转化为对应的类型（格式转换可以用StringValue）
 func (c *Context) HeaderJson(key string) StringValue {
 	val := c.R.Header.Get(key)
 	if val == "" {
@@ -112,18 +112,18 @@ func (c *Context) HeaderJson(key string) StringValue {
 	return StringValue{val: val}
 }
 
-// 格式转换：方便用户自己选择对应格式，示例用法 c.FromValue().ToInt64()=> ToInt64()可变其他格式
+// StringValue 格式转换：方便用户自己选择对应格式，示例用法 c.FromValue().ToInt64()=> ToInt64()可变其他格式
 type StringValue struct {
 	val string
 	err error
 }
 
-// 解包数据结构体
+// ToString 解包数据结构体
 func (s StringValue) ToString() (string, error) {
 	return s.val, s.err
 }
 
-// 解包数据结构体 + 转换Int64
+// ToInt64 解包数据结构体 + 转换Int64
 func (s StringValue) ToInt64() (int64, error) {
 	if s.err != nil {
 		return 0, s.err
@@ -149,7 +149,7 @@ func (s StringValue) ToInt64() (int64, error) {
 // • 设置 Cookie ：设置 Cookie 的值
 // • 设置 Header：往 Header放东西
 
-// 序列化输出：按照某种特定的格式输出数据，例如 JSON 或者 XML
+// RespJson 序列化输出：按照某种特定的格式输出数据，例如 JSON 或者 XML
 func (c *Context) RespJson(code int, data any) error {
 	val, err := json.Marshal(data)
 	if err != nil {
@@ -160,7 +160,7 @@ func (c *Context) RespJson(code int, data any) error {
 	return err
 }
 
-// 设置 Cookie ：设置 Cookie 的值
+// SetCookie 设置 Cookie ：设置 Cookie 的值
 func (c *Context) SetCookie(cookie *http.Cookie) {
 	http.SetCookie(c.W, cookie)
 	//c.W.Header().Set("Set-Cookie",cookie.String())
@@ -173,7 +173,7 @@ func (c *Context) setHeader(key, val string) {
 	c.W.Header().Add(key, val)
 }
 
-// 进一步封装以便提供更便捷的方法
+// OKRequestJson 进一步封装以便提供更便捷的方法
 func (c *Context) OKRequestJson(data interface{}) error {
 	return c.RespJson(http.StatusOK, data) //status code:200
 }

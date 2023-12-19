@@ -22,7 +22,7 @@ type FileUpLoader struct {
 	DstPathFunc func(fh *multipart.FileHeader) string
 }
 
-// 选项模式设置默认值
+// DstOPT 选项模式设置默认值
 type DstOPT func(f *FileUpLoader)
 
 func NewFileUpLoader(FileField string, OPT ...DstOPT) *FileUpLoader {
@@ -39,7 +39,7 @@ func NewFileUpLoader(FileField string, OPT ...DstOPT) *FileUpLoader {
 	return f
 }
 
-// 更换默认目的文件地址函数
+// WithDefaultFileUpLoader 更换默认目的文件地址函数
 func WithDefaultFileUpLoader(dst func(fh *multipart.FileHeader) string) DstOPT {
 	return func(f *FileUpLoader) {
 		f.DstPathFunc = dst
@@ -84,7 +84,7 @@ func (f *FileUpLoader) Handle() HandleFunc {
 	}
 }
 
-// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+// FileDownloader >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 // FileDownloader 直接操作了 http.ResponseWriter
 // 所以在 Middleware 里面将不能使用 RespData
 // 因为没有赋值
@@ -92,7 +92,7 @@ type FileDownloader struct {
 	Dir string //下载文件的地址（需要下载的文件存放位置）
 }
 
-// 假定下载地址的格式是restfull ：..... /XXXX?file=xxxx
+// Handle 假定下载地址的格式是restfull ：..... /XXXX?file=xxxx
 func (f *FileDownloader) Handle() HandleFunc {
 	return func(ctx *Context) {
 		//拿到要下载的文件名字
@@ -119,10 +119,10 @@ func (f *FileDownloader) Handle() HandleFunc {
 
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-// option模式更改默认值
+// StaticResourceHandlerOption option模式更改默认值
 type StaticResourceHandlerOption func(s *StaticResourceHandler)
 
-// 静态资源请求
+// StaticResourceHandler 静态资源请求
 // 通过缓存数量与每个缓存大小控制避免大文件缓存
 type StaticResourceHandler struct {
 	dir                     string            //文件存储目录

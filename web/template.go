@@ -25,14 +25,14 @@ func (g *GOTemplateEngine) Render(telname string, data any) ([]byte, error) {
 	return res.Bytes(), err
 }
 
-// 按照模式导入解析模板
+// LoadFromGlob 按照模式导入解析模板
 func (g *GOTemplateEngine) LoadFromGlob(pattern string) error {
 	var err error
 	g.T, err = template.ParseGlob(pattern)
 	return err
 }
 
-// 按照文件名导入并解析模板
+// LoadFromFiles 按照文件名导入并解析模板
 func (g *GOTemplateEngine) LoadFromFiles(filenames ...string) error {
 	var err error
 	g.T, err = template.ParseFiles(filenames...)

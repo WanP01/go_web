@@ -17,13 +17,13 @@ type Routable interface {
 
 //—————————————————————————————————————实现层——————————————————————————————————————————————————————
 
-//基于go map基本数据结构结构实现路由分发和注册功能
+// HandlerBasedonMap 基于go map基本数据结构结构实现路由分发和注册功能
 type HandlerBasedonMap struct {
 	//路由器的“method+path” 匹配 相应的处理函数 handlefunc
 	handlefuncs map[string]HandleFunc
 }
 
-//路由分发（基于map实现）：Router——>call ServeHTTP()
+// 路由分发（基于map实现）：Router——>call ServeHTTP()
 func (h *HandlerBasedonMap) findRouter(method string, pattern string) (*matchInfo, bool) {
 	key := h.KeyGen(method, pattern)
 	//处理逻辑是否存在对应key：value
@@ -34,21 +34,21 @@ func (h *HandlerBasedonMap) findRouter(method string, pattern string) (*matchInf
 	}
 }
 
-//路由注册功能
+// Route 路由注册功能
 func (h *HandlerBasedonMap) Route(method string, pattern string, handlefunc HandleFunc) {
 	key := h.KeyGen(method, pattern) //对应路径生成key
 	h.handlefuncs[key] = handlefunc  //注册对应路径的处理函数，本质代替了http.HandleFunc作用
 }
 
-//封装路由map key生成功能
+// KeyGen 封装路由map key生成功能
 func (h *HandlerBasedonMap) KeyGen(method string, path string) string {
 	return method + "#" + path //分隔符主要是避免key相同
 }
 
-//HandlerBasedonMap生成函数
+// NewHandlerBasedonMap HandlerBasedonMap生成函数
 func NewHandlerBasedonMap() *HandlerBasedonMap {
 	return &HandlerBasedonMap{handlefuncs: make(map[string]HandleFunc)}
 }
 
-//GO语言小技巧，用于确保HandleBasedonMap确实实现Router接口（如有方法未实现，会报错）
+// GO语言小技巧，用于确保HandleBasedonMap确实实现Router接口（如有方法未实现，会报错）
 var _ Routable = &HandlerBasedonMap{}

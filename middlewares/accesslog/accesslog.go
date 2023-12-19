@@ -11,14 +11,14 @@ type middlewarebuilder struct { // build套皮
 	logFunc func(ctx *web.Context) // 日志中间件逻辑处理函数本体
 }
 
-// 用于构造自定义的middlewarebuilder
+// NewLogFuncBuilder 用于构造自定义的middlewarebuilder
 func NewLogFuncBuilder(lf func(ctx *web.Context)) *middlewarebuilder {
 	return &middlewarebuilder{
 		logFunc: lf,
 	}
 }
 
-// 返回默认预设的的middlewarebuilder
+// WithDefaultLogFunc 返回默认预设的的middlewarebuilder
 func WithDefaultLogFunc() *middlewarebuilder {
 	return NewLogFuncBuilder(func(ctx *web.Context) {
 		l := AccessLog{
@@ -32,7 +32,7 @@ func WithDefaultLogFunc() *middlewarebuilder {
 	})
 }
 
-// 用于构造AOP中间件的级联引用
+// Build 用于构造AOP中间件的级联引用
 func (m *middlewarebuilder) Build() web.Middleware {
 	return func(next web.HandleFunc) web.HandleFunc {
 		return func(ctx *web.Context) {

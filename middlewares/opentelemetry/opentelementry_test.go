@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// 示例，实际未使用
 func TestOpenTelemetry(t *testing.T) {
 	ctx := context.Background()
 	tracer := otel.GetTracerProvider().

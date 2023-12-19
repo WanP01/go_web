@@ -8,10 +8,10 @@ import (
 
 // 抽象
 
-// 处理函数抽象
+// HandleFunc 处理函数抽象
 type HandleFunc func(ctx *Context)
 
-// 将原有ServerEngine的route注册功能包装进Handler接口，避免Server直接调用HandlerBasedonMap的内部结构
+// Routable 将原有ServerEngine的route注册功能包装进Handler接口，避免Server直接调用HandlerBasedonMap的内部结构
 type Routable interface {
 	Route(method string, pattern string, handlefunc HandleFunc)  //路由注册功能
 	findRouter(method string, pattern string) (*matchInfo, bool) // 路由查找功能
@@ -36,7 +36,7 @@ func newRouter() *router {
 // 确保router实现Routable接口
 var _ Routable = &router{}
 
-// addRoute 注册路由。
+// Route addRoute 注册路由。
 // method 是 HTTP 方法
 // 静态匹配
 // - path 必须以 / 开始并且结尾不能有 /，中间也不允许有连续的 /
@@ -140,7 +140,7 @@ const (
 // 2. 正则匹配，形式 :param_name(reg_expr)
 // 3. 路径参数匹配：形式 :param_name
 // 4. 通配符匹配：*
-// 这是不回溯匹配
+// 这是不回溯匹配（已修改为回溯匹配）
 type node struct {
 	typ   nodetype //路由类型(必填)
 	path  string   //path URL路径(必填)
@@ -157,7 +157,7 @@ type node struct {
 	paramName   string           // 参数名称 => 正则和参数匹配都可以使用
 }
 
-// 按照 静态，正则，参数，通配符的优先级递归遍历 route找到第一个符合的节点，通过回溯记录参数和正则匹配的信息
+// BackSearchChild 按照 静态，正则，参数，通配符的优先级递归遍历 route找到第一个符合的节点，通过回溯记录参数和正则匹配的信息
 func (n *node) BackSearchChild(segs []string, cnt int, mi *matchInfo) (*node, bool) {
 
 	if cnt == len(segs) {
@@ -211,7 +211,7 @@ func (n *node) BackSearchChild(segs []string, cnt int, mi *matchInfo) (*node, bo
 	return nil, false
 }
 
-// children of 层序遍历查找所有满足的子节点 *node
+// Childof （已废弃） children of 层序遍历查找所有满足的子节点 *node
 // bool 返回确认是否找到对应节点
 func (n *node) Childof(pattern string) ([]*node, bool) {
 	nodeList := make([]*node, 0)
@@ -240,7 +240,7 @@ func (n *node) Childof(pattern string) ([]*node, bool) {
 	return nodeList, (len(nodeList) != 0) // 找到对应node即返回
 }
 
-// childOrCreate 查找子节点，
+// ChildOrCreate childOrCreate 查找子节点，
 // 首先会判断 path 是不是通配符路径
 // 其次判断 path 是不是正则和参数路径，即以 : 开头的路径
 // 最后会从 children 里面查找，
