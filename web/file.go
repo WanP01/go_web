@@ -50,13 +50,13 @@ func (f *FileUpLoader) Handle() HandleFunc {
 	return func(ctx *Context) {
 		//获得上传文件
 		srcFile, srcHeader, err := ctx.R.FormFile(f.FileField)
+		defer srcFile.Close()
 		if err != nil {
 			ctx.RespData = []byte("上传失败，未找到数据" + err.Error())
 			ctx.RespStatusCode = http.StatusBadRequest //400 客户端请求报文语法错误
 			//log.Fatalln(err)
 			return
 		}
-		defer srcFile.Close()
 		//获得目标地址，并创建和打开对应文件
 		dstPath := f.DstPathFunc(srcHeader)
 
@@ -98,7 +98,7 @@ func (f *FileDownloader) Handle() HandleFunc {
 		//拿到要下载的文件名字
 		reqFile, _ := ctx.QueryValue("file").ToString()
 		//拼接下载地址
-		// filepath.Clean（）会消除不安全的路径，比如 ../../xxx.go 这种会被客户拿到不该传出的文件
+		// filepath.Clean（）会消除不安全的路径，比如 ../../xxx.txt 这种会被客户拿到不该传出的文件
 		path := filepath.Join(f.Dir, filepath.Clean(reqFile))
 		fn := filepath.Base(path)
 		//构建Response HTTP header 包

@@ -7,7 +7,7 @@ import (
 
 //接口定义
 
-// session 结构本体的抽象
+// Session session 结构本体的抽象
 // curd 增删改查Session中某个字段的值
 type Session interface {
 	ID() string                                            //查询ID的快捷方式

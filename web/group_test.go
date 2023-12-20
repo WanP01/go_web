@@ -1,34 +1,33 @@
-package test
+package web
 
 import (
 	"fmt"
-	"go_web/web"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
 func TestGroup(t *testing.T) {
-	mdl1 := func(next web.HandleFunc) web.HandleFunc {
-		return func(ctx *web.Context) {
+	mdl1 := func(next HandleFunc) HandleFunc {
+		return func(ctx *Context) {
 			println("这是Server级别的middleware: 0-/-mdl1")
 			next(ctx)
 		}
 	}
-	mdl2 := func(next web.HandleFunc) web.HandleFunc {
-		return func(ctx *web.Context) {
+	mdl2 := func(next HandleFunc) HandleFunc {
+		return func(ctx *Context) {
 			println("这是Group级别的middleware: 1-/a-mdl2")
 			next(ctx)
 		}
 	}
-	mdl3 := func(next web.HandleFunc) web.HandleFunc {
-		return func(ctx *web.Context) {
+	mdl3 := func(next HandleFunc) HandleFunc {
+		return func(ctx *Context) {
 			println("这是Group/Group级别的middleware: 2-/a/b-mdl3")
 			next(ctx)
 		}
 	}
 
-	s := web.NewServerEngine("test_group_middleware")
+	s := NewServerEngine("test_group_middleware")
 	s.Use(mdl1)
 
 	v1 := s.NewGroup("/a")

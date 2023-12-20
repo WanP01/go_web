@@ -38,7 +38,7 @@ func WithCacheTimeOPTION(expiration time.Duration, t time.Duration) CacheTimeOPT
 	}
 }
 
-// 新增缓存session 实例
+// Generate 新增缓存session 实例
 func (s *Store) Generate(ctx context.Context, id string) (session.Session, error) {
 	sess := &memorySession{
 		id:         id,
@@ -51,12 +51,12 @@ func (s *Store) Generate(ctx context.Context, id string) (session.Session, error
 	return sess, nil
 }
 
-// 更新过期时间
+// Refresh 更新过期时间
 func (s *Store) Refresh(ctx context.Context, id string) error {
 
 	sess, err := s.Get(ctx, id) // cache缓存内取出对应id的session
 	if err != nil {
-		return nil
+		return err
 	}
 	s.RWM.Lock()
 	defer s.RWM.Unlock()
@@ -64,7 +64,7 @@ func (s *Store) Refresh(ctx context.Context, id string) error {
 	return nil
 }
 
-// 删除缓存实例
+// Remove 删除缓存实例
 func (s *Store) Remove(ctx context.Context, id string) error {
 	s.RWM.Lock()
 	defer s.RWM.Unlock()
@@ -72,7 +72,7 @@ func (s *Store) Remove(ctx context.Context, id string) error {
 	return nil
 }
 
-// 获取缓存实例
+// Get 获取缓存实例
 func (s *Store) Get(ctx context.Context, id string) (session.Session, error) {
 	s.RWM.RLock()
 	defer s.RWM.RUnlock()
