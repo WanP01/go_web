@@ -39,6 +39,7 @@ func (g *GOTemplateEngine) LoadFromFiles(filenames ...string) error {
 	return err
 }
 
+// LoadFromFS  按照文件系统导入并解析模板
 func (g *GOTemplateEngine) LoadFromFS(fs fs.FS, patterns ...string) error {
 	var err error
 	g.T, err = template.ParseFS(fs, patterns...)
